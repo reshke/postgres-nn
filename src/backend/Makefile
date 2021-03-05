@@ -57,7 +57,7 @@ LIBS += -lsystemd
 endif
 
 # todo: autoconf magic
-LIBS += -lcurl
+LIBS += -lcurl -lxml2
 
 ##########################################################################
 

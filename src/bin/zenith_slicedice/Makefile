@@ -19,7 +19,7 @@ override CPPFLAGS := -DFRONTEND $(CPPFLAGS)
 
 LDFLAGS_INTERNAL += -L$(top_builddir)/src/fe_utils -lpgfeutils $(libpq_pgport)
 LDFLAGS_INTERNAL += -L$(top_builddir)/src/zenith_s3 -lzeniths3
-LDFLAGS_INTERNAL += -lcurl
+LDFLAGS_INTERNAL += -lcurl -lxml2
 
 RMGRDESCSOURCES = xactdesc.c standbydesc.c
 RMGRDESCOBJS = $(patsubst %.c,%.o,$(RMGRDESCSOURCES))

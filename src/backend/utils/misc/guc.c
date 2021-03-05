@@ -1187,7 +1187,7 @@ static struct config_bool ConfigureNamesBool[] =
 						 "an operating system or hardware crash.")
 		},
 		&enableFsync,
-		true,
+		false,
 		NULL, NULL, NULL
 	},
 	{

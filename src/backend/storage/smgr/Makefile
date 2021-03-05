@@ -14,6 +14,7 @@ include $(top_builddir)/src/Makefile.global
 
 OBJS = \
 	lazyrestore.o \
+	memstore.o \
 	md.o \
 	smgr.o
 

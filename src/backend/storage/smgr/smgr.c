@@ -22,11 +22,13 @@
 #include "storage/bufmgr.h"
 #include "storage/ipc.h"
 #include "storage/lazyrestore.h"
+#include "storage/memstore.h"
 #include "storage/md.h"
 #include "storage/smgr.h"
 #include "utils/hsearch.h"
 #include "utils/inval.h"
 
+int smgr_which = 2;
 
 /*
  * This struct of function pointers defines the API between smgr.c and
@@ -101,6 +103,24 @@ static const f_smgr smgrsw[] = {
 		.smgr_nblocks = lazyrestore_nblocks,
 		.smgr_truncate = lazyrestore_truncate,
 		.smgr_immedsync = lazyrestore_immedsync,
+	},
+	/* memstore */
+	{
+		.smgr_init = memstore_init,
+		.smgr_shutdown = NULL,
+		.smgr_open = memstore_open,
+		.smgr_close = memstore_close,
+		.smgr_create = memstore_create,
+		.smgr_exists = memstore_exists,
+		.smgr_unlink = memstore_unlink,
+		.smgr_extend = memstore_extend,
+		.smgr_prefetch = memstore_prefetch,
+		.smgr_read = memstore_read,
+		.smgr_write = memstore_write,
+		.smgr_writeback = memstore_writeback,
+		.smgr_nblocks = memstore_nblocks,
+		.smgr_truncate = memstore_truncate,
+		.smgr_immedsync = memstore_immedsync,
 	}
 };
 
@@ -129,13 +149,9 @@ static void smgrshutdown(int code, Datum arg);
 void
 smgrinit(void)
 {
-	int			i;
-
-	for (i = 0; i < NSmgr; i++)
-	{
-		if (smgrsw[i].smgr_init)
-			smgrsw[i].smgr_init();
-	}
+	smgrsw[0].smgr_init();
+	if (smgr_which != 0)
+		smgrsw[smgr_which].smgr_init();
 
 	/* register the shutdown proc */
 	on_proc_exit(smgrshutdown, 0);
@@ -195,18 +211,20 @@ smgropen(RelFileNode rnode, BackendId backend)
 		reln->smgr_targblock = InvalidBlockNumber;
 		for (int i = 0; i <= MAX_FORKNUM; ++i)
 			reln->smgr_cached_nblocks[i] = InvalidBlockNumber;
-		/*
+
+
+        /*
 		 * FIXME: lazyrestore is 2, but we don't actually use the smgr API for the
 		 * calls. Instead, there is a direct call to restore_if_lazy() in
 		 * ReadBuffer_common()
 		 */
-		reln->smgr_which = 1; /* md */
+		reln->smgr_which = rnode.relNode < FirstBootstrapObjectId ? 0 : smgr_which; /* md */
 
 		/* implementation-specific initialization */
 		smgrsw[reln->smgr_which].smgr_open(reln);
 
 		for (int i = 0; i <= MAX_FORKNUM; ++i)
-			reln->possibly_lazy[i] = true;
+			reln->possibly_lazy[i] = (smgr_which == 1);
 
 		/* it has no owner yet */
 		dlist_push_tail(&unowned_relns, &reln->node);
