@@ -23,6 +23,7 @@
 #include "storage/ipc.h"
 #include "storage/md.h"
 #include "storage/smgr.h"
+#include "storage/pageserver.h"
 #include "utils/hsearch.h"
 #include "utils/inval.h"
 
@@ -82,6 +83,24 @@ static const f_smgr smgrsw[] = {
 		.smgr_nblocks = mdnblocks,
 		.smgr_truncate = mdtruncate,
 		.smgr_immedsync = mdimmedsync,
+	},
+	/* zenith_smgr */
+	{
+		.smgr_init = zenith_init,
+		.smgr_shutdown = NULL,
+		.smgr_open = zenith_open,
+		.smgr_close = zenith_close,
+		.smgr_create = zenith_create,
+		.smgr_exists = zenith_exists,
+		.smgr_unlink = zenith_unlink,
+		.smgr_extend = zenith_extend,
+		.smgr_prefetch = zenith_prefetch,
+		.smgr_read = zenith_read,
+		.smgr_write = zenith_write,
+		.smgr_writeback = zenith_writeback,
+		.smgr_nblocks = zenith_nblocks,
+		.smgr_truncate = zenith_truncate,
+		.smgr_immedsync = zenith_immedsync,
 	}
 };
 
@@ -176,7 +195,11 @@ smgropen(RelFileNode rnode, BackendId backend)
 		reln->smgr_targblock = InvalidBlockNumber;
 		for (int i = 0; i <= MAX_FORKNUM; ++i)
 			reln->smgr_cached_nblocks[i] = InvalidBlockNumber;
-		reln->smgr_which = 0;	/* we only have md.c at present */
+
+		if (page_server_connstring && page_server_connstring[0])
+			reln->smgr_which = rnode.relNode < FirstNormalObjectId ? 0 : 1;
+		else
+			reln->smgr_which = 0;
 
 		/* implementation-specific initialization */
 		smgrsw[reln->smgr_which].smgr_open(reln);
