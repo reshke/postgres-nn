@@ -105,6 +105,7 @@ static const f_smgr smgrsw[] = {
 };
 
 static const int NSmgr = lengthof(smgrsw);
+int smgr_which = 0;
 
 /*
  * Each backend has a hashtable that stores all extant SMgrRelation objects.
@@ -200,13 +201,13 @@ smgropen(RelFileNode rnode, BackendId backend)
 		 * calls. Instead, there is a direct call to restore_if_lazy() in
 		 * ReadBuffer_common()
 		 */
-		reln->smgr_which = 1; /* md */
+		reln->smgr_which = smgr_which; /* md */
 
 		/* implementation-specific initialization */
 		smgrsw[reln->smgr_which].smgr_open(reln);
 
 		for (int i = 0; i <= MAX_FORKNUM; ++i)
-			reln->possibly_lazy[i] = true;
+			reln->possibly_lazy[i] = (smgr_which == 1);
 
 		/* it has no owner yet */
 		dlist_push_tail(&unowned_relns, &reln->node);
