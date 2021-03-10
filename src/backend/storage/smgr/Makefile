@@ -14,9 +14,7 @@ include $(top_builddir)/src/Makefile.global
 
 OBJS = \
 	md.o \
-	pageserver.o \
+	pagestore_smgr.o \
 	smgr.o
-
-SUBDIRS = libpqpageserver
 
 include $(top_srcdir)/src/backend/common.mk
