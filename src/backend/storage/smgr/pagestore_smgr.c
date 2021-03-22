@@ -39,6 +39,7 @@ char const *const ZenithMessageStr[] =
 	"ZenithUnlinkRequest",
 	"ZenithNblocksRequest",
 	"ZenithReadRequest",
+	"ZenithPageExistsRequest",
 	"ZenithCreateRequest",
 	"ZenithExtendRequest",
 	"ZenithStatusResponse",
@@ -62,6 +63,7 @@ zm_pack(ZenithMessage *msg)
 		case T_ZenithUnlinkRequest:
 		case T_ZenithNblocksRequest:
 		case T_ZenithReadRequest:
+		case T_ZenithPageExistsRequest:
 		case T_ZenithCreateRequest:
 		case T_ZenithExtendRequest:
 		{
@@ -112,6 +114,7 @@ zm_unpack(StringInfo s)
 		case T_ZenithUnlinkRequest:
 		case T_ZenithNblocksRequest:
 		case T_ZenithReadRequest:
+		case T_ZenithPageExistsRequest:
 		case T_ZenithCreateRequest:
 		case T_ZenithExtendRequest:
 		{
@@ -183,6 +186,7 @@ zm_to_string(ZenithMessage *msg)
 		case T_ZenithUnlinkRequest:
 		case T_ZenithNblocksRequest:
 		case T_ZenithReadRequest:
+		case T_ZenithPageExistsRequest:
 		case T_ZenithCreateRequest:
 		case T_ZenithExtendRequest:
 		{
@@ -450,6 +454,47 @@ zenith_read(SMgrRelation reln, ForkNumber forkNum, BlockNumber blkno,
 
 #define PD_UNLOGGED 0x8
 
+bool
+zenith_slru_page_exists(RelFileNode rnode, BlockNumber blkno)
+{
+	if (!loaded)
+		zenith_load();
+
+	bool ok;
+
+	ZenithResponse *resp = page_server->request((ZenithRequest) {
+		.tag = T_ZenithPageExistsRequest,
+		.page_key = {
+			.rnode = rnode,
+			.forknum = 0,
+			.blkno = blkno
+		}
+	});
+	ok = resp->ok;
+	pfree(resp);
+	return ok;
+}
+
+void
+zenith_read_slru(RelFileNode rnode, BlockNumber blkno, char *buffer)
+{
+	if (!loaded)
+		zenith_load();
+
+	elog(LOG, "[ZENITH_SMGR] read SLRU relnode %u/%u/%u blkno %u",
+		rnode.spcNode, rnode.dbNode, rnode.relNode, blkno);
+	ZenithResponse *resp = page_server->request((ZenithRequest) {
+		.tag = T_ZenithReadRequest,
+		.page_key = {
+			.rnode = rnode,
+			.forknum = MAIN_FORKNUM,
+			.blkno = blkno
+		}
+	});
+
+	memcpy(buffer, resp->page, BLCKSZ);
+	pfree(resp);
+}
 
 /*
  *	zenith_write() -- Write the supplied block at the appropriate location.

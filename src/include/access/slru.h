@@ -17,6 +17,11 @@
 #include "storage/lwlock.h"
 #include "storage/sync.h"
 
+/* Fake relnodes to communicate with zenith pageserver */
+#define CLOG_RELNODE 100500
+#define MULTIXACT_OFFSETS_RELNODE 200500
+#define MULTIXACT_MEMBERS_RELNODE 200501
+
 
 /*
  * Define SLRU segment size.  A page is the same BLCKSZ as is used everywhere

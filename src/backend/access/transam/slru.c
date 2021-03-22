@@ -59,6 +59,8 @@
 #include "storage/fd.h"
 #include "storage/shmem.h"
 
+#include "storage/pagestore_client.h"
+
 #define SlruFileName(ctl, path, seg) \
 	snprintf(path, MAXPGPATH, "%s/%04X", (ctl)->Dir, seg)
 
@@ -637,6 +639,23 @@ SimpleLruDoesPhysicalPageExist(SlruCtl ctl, int pageno)
 
 	SlruFileName(ctl, path, segno);
 
+	if (computenode_mode &&
+		page_server_connstring && page_server_connstring[0])
+	{
+		RelFileNode rnode;
+		rnode.dbNode = 0;
+		rnode.spcNode = 0;
+
+		if (strcmp(ctl->Dir, "pg_xact") == 0)
+			rnode.relNode = CLOG_RELNODE;
+		else if (strcmp(ctl->Dir, "pg_multixact/offsets") == 0)
+			rnode.relNode = MULTIXACT_OFFSETS_RELNODE;
+		else if (strcmp(ctl->Dir, "pg_multixact/members") == 0)
+			rnode.relNode = MULTIXACT_MEMBERS_RELNODE;
+
+		return zenith_slru_page_exists(rnode, pageno);
+	}
+
 	fd = OpenTransientFile(path, O_RDONLY | PG_BINARY);
 	if (fd < 0)
 	{
@@ -698,6 +717,25 @@ SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno)
 	 * SlruPhysicalWritePage).  Hence, if we are InRecovery, allow the case
 	 * where the file doesn't exist, and return zeroes instead.
 	 */
+
+	if (computenode_mode &&
+		page_server_connstring && page_server_connstring[0])
+	{
+		RelFileNode rnode;
+		rnode.dbNode = 0;
+		rnode.spcNode = 0;
+
+		if (strcmp(ctl->Dir, "pg_xact") == 0)
+			rnode.relNode = CLOG_RELNODE;
+		else if (strcmp(ctl->Dir, "pg_multixact/offsets") == 0)
+			rnode.relNode = MULTIXACT_OFFSETS_RELNODE;
+		else if (strcmp(ctl->Dir, "pg_multixact/members") == 0)
+			rnode.relNode = MULTIXACT_MEMBERS_RELNODE;
+
+		zenith_read_slru(rnode, pageno, shared->page_buffer[slotno]);
+		return true;
+	}
+
 	fd = OpenTransientFile(path, O_RDONLY | PG_BINARY);
 	if (fd < 0)
 	{
@@ -717,6 +755,7 @@ SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno)
 
 	errno = 0;
 	pgstat_report_wait_start(WAIT_EVENT_SLRU_READ);
+
 	if (pg_pread(fd, shared->page_buffer[slotno], BLCKSZ, offset) != BLCKSZ)
 	{
 		pgstat_report_wait_end();
@@ -725,6 +764,7 @@ SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno)
 		CloseTransientFile(fd);
 		return false;
 	}
+
 	pgstat_report_wait_end();
 
 	if (CloseTransientFile(fd) != 0)
@@ -763,6 +803,17 @@ SlruPhysicalWritePage(SlruCtl ctl, int pageno, int slotno, SlruWriteAll fdata)
 
 	/* update the stats counter of written pages */
 	pgstat_count_slru_page_written(shared->slru_stats_idx);
+
+	if (computenode_mode &&
+		page_server_connstring && page_server_connstring[0])
+	{
+		if (strcmp(ctl->Dir, "pg_xact") == 0 ||
+			strcmp(ctl->Dir, "pg_multixact/offsets") == 0 ||
+			strcmp(ctl->Dir, "pg_multixact/members") == 0)
+
+		elog(DEBUG2, "[ZENITH] SLRU SlruPhysicalWritePage noop");
+		return true;
+	}
 
 	/*
 	 * Honor the write-WAL-before-data rule, if appropriate, so that we do not
@@ -1596,6 +1647,18 @@ SlruSyncFileTag(SlruCtl ctl, const FileTag *ftag, char *path)
 	int			result;
 
 	SlruFileName(ctl, path, ftag->segno);
+
+
+	if (computenode_mode &&
+		page_server_connstring && page_server_connstring[0])
+	{
+		if (strcmp(ctl->Dir, "pg_xact") == 0 ||
+			strcmp(ctl->Dir, "pg_multixact/offsets") == 0 ||
+			strcmp(ctl->Dir, "pg_multixact/members") == 0)
+
+		elog(DEBUG2, "[ZENITH] SLRU SlruSyncFileTag noop");
+		return true;
+	}
 
 	fd = OpenTransientFile(path, O_RDWR | PG_BINARY);
 	if (fd < 0)
