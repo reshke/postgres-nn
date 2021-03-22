@@ -25,7 +25,9 @@
 #include "catalog/storage_xlog.h"
 #include "commands/dbcommands_xlog.h"
 #include "access/xact.h"
+#include "access/multixact.h"
 #include "catalog/pg_control.h"
+#include "access/slru.h"
 
 #include "libpq/pqformat.h"
 #include "libpq-fe.h"
@@ -613,6 +615,59 @@ handle_record(XLogReaderState *record)
 			key.blkno = blkno;
 
 			memstore_insert(key, record->EndRecPtr, block_id, record->decoded_record);
+		}
+	}
+	else if (action == APPEND_NONREL_WAL)
+	{
+		PerPageWalHashKey key;
+		memset(&key, '\0', sizeof(PerPageWalHashKey));
+		key.system_identifier = 42; //client_system_id;
+		key.rnode.dbNode = 0;
+		key.rnode.spcNode = 0;
+
+		if (rmid == RM_XACT_ID || rmid == RM_CLOG_ID)
+		{
+
+			key.rnode.relNode = CLOG_RELNODE;
+			key.forknum = 0;
+			//TODO xact record may touch more than one page
+			key.blkno = TransactionIdToPage(XLogRecGetXid(record));
+
+			memstore_insert(key, record->EndRecPtr, 0, record->decoded_record);
+		}
+		else if (rmid == RM_MULTIXACT_ID)
+		{
+			uint8		info = XLogRecGetInfo(record) & ~XLR_INFO_MASK;
+
+			if (info == XLOG_MULTIXACT_ZERO_OFF_PAGE)
+			{
+				int pageno;
+				key.rnode.relNode = MULTIXACT_OFFSETS_RELNODE;
+				key.forknum = 0;
+				memcpy(&pageno, XLogRecGetData(record), sizeof(int));
+				key.blkno = pageno;
+				memstore_insert(key, record->EndRecPtr, 0, record->decoded_record);
+			}
+			else if (info == XLOG_MULTIXACT_ZERO_MEM_PAGE)
+			{
+				int pageno;
+				key.rnode.relNode = MULTIXACT_MEMBERS_RELNODE;
+				key.forknum = 0;
+				memcpy(&pageno, XLogRecGetData(record), sizeof(int));
+				key.blkno = pageno;
+				memstore_insert(key, record->EndRecPtr, 0, record->decoded_record);
+			}
+			else if (info == XLOG_MULTIXACT_CREATE_ID)
+			{
+				xl_multixact_create *xlrec =
+				(xl_multixact_create *) XLogRecGetData(record);
+
+				key.rnode.relNode = MULTIXACT_OFFSETS_RELNODE;
+				key.forknum = 0;
+				key.blkno = MultiXactIdToOffsetPage(xlrec->mid);
+
+				memstore_insert(key, record->EndRecPtr, 0, record->decoded_record);
+			}
 		}
 	}
 }
