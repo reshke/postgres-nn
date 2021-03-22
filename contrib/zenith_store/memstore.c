@@ -24,6 +24,8 @@
 #include "storage/proc.h"
 #include "storage/pagestore_client.h"
 #include "miscadmin.h"
+#include "common/controldata_utils.h"
+#include "common/file_perm.h"
 
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
@@ -31,11 +33,16 @@
 #include "memstore.h"
 #include "zenith_store.h"
 
+#include "access/xlog_internal.h"
 #include "access/clog.h"
 #include "access/xact.h"
 #include "access/multixact.h"
 #include "access/slru.h"
-
+#include "catalog/pg_control.h"
+#include <sys/stat.h>
+#include <unistd.h>
+#include <dirent.h>
+#include "storage/copydir.h"
 
 MemStore *memStore;
 
@@ -43,6 +50,7 @@ static MemoryContext RestoreCxt;
 
 PG_FUNCTION_INFO_V1(zenith_store_get_page);
 PG_FUNCTION_INFO_V1(zenith_store_dispatcher);
+PG_FUNCTION_INFO_V1(zenith_store_init_computenode);
 
 void
 memstore_init()
@@ -88,6 +96,270 @@ memstore_init_shmem()
 
 	LWLockRelease(AddinShmemInitLock);
 }
+
+
+static int
+pg_mkdir_recursive(char *path, int omode)
+{
+	struct stat sb;
+	mode_t		numask,
+				oumask;
+	int			last,
+				retval;
+	char	   *p;
+
+	retval = 0;
+	p = path;
+
+	/*
+	 * POSIX 1003.2: For each dir operand that does not name an existing
+	 * directory, effects equivalent to those caused by the following command
+	 * shall occur:
+	 *
+	 * mkdir -p -m $(umask -S),u+wx $(dirname dir) && mkdir [-m mode] dir
+	 *
+	 * We change the user's umask and then restore it, instead of doing
+	 * chmod's.  Note we assume umask() can't change errno.
+	 */
+	oumask = umask(0);
+	numask = oumask & ~(S_IWUSR | S_IXUSR);
+	(void) umask(numask);
+
+	if (p[0] == '/')			/* Skip leading '/'. */
+		++p;
+	for (last = 0; !last; ++p)
+	{
+		if (p[0] == '\0')
+			last = 1;
+		else if (p[0] != '/')
+			continue;
+		*p = '\0';
+		if (!last && p[1] == '\0')
+			last = 1;
+
+		if (last)
+			(void) umask(oumask);
+
+		/* check for pre-existing directory */
+		if (stat(path, &sb) == 0)
+		{
+			if (!S_ISDIR(sb.st_mode))
+			{
+				if (last)
+					errno = EEXIST;
+				else
+					errno = ENOTDIR;
+				retval = -1;
+				break;
+			}
+		}
+		else if (mkdir(path, last ? omode : S_IRWXU | S_IRWXG | S_IRWXO) < 0)
+		{
+			retval = -1;
+			break;
+		}
+		if (!last)
+			*p = '/';
+	}
+
+	/* ensure we restored umask */
+	(void) umask(oumask);
+
+	return retval;
+}
+
+/* Given ConrtolFile and PGDATA path write fake Xlog,
+ * that contains only one checkpoint record needed to start postgres.
+ *
+ * FIXME: Now it only works if checkpoint record is the first record in the segment
+ */
+static void
+WriteFakeXLOG(char *base_path, ControlFileData ControlFile)
+{
+	PGAlignedXLogBlock buffer;
+	PGAlignedXLogBlock targetbuffer;
+	XLogPageHeader page;
+	XLogLongPageHeader longpage;
+	XLogRecord *record;
+	pg_crc32c	crc;
+	char xlog_relative_path[MAXPGPATH];
+	char		*path;
+	int			fd;
+	int			nbytes;
+	char	   *recptr;
+	int newXlogSegNo;
+	int newXlogPageNo;
+	uint64 targetPageOff = XLogSegmentOffset(ControlFile.checkPointCopy.redo, ControlFile.xlog_seg_size);
+	uint64 targetRecOff =  ControlFile.checkPointCopy.redo % XLOG_BLCKSZ;
+
+	memset(buffer.data, 0, XLOG_BLCKSZ);
+	memset(targetbuffer.data, 0, XLOG_BLCKSZ);
+
+	newXlogSegNo = ControlFile.checkPointCopy.redo / ControlFile.xlog_seg_size;
+	newXlogPageNo = targetPageOff / XLOG_BLCKSZ;
+
+	elog(DEBUG5, "LSN %X/%X Segno %d blkno %d",
+	(uint32) (ControlFile.checkPointCopy.redo >> 32),
+	(uint32) ControlFile.checkPointCopy.redo,
+	 newXlogSegNo, newXlogPageNo);
+
+	/* Set up the target XLOG page */
+	page = (XLogPageHeader) targetbuffer.data;
+	page->xlp_magic = XLOG_PAGE_MAGIC;
+	page->xlp_tli = ControlFile.checkPointCopy.ThisTimeLineID;
+
+	if (newXlogSegNo == 0)
+	{
+		page->xlp_info = XLP_LONG_HEADER;
+		page->xlp_pageaddr = ControlFile.checkPointCopy.redo - SizeOfXLogLongPHD;
+		longpage = (XLogLongPageHeader) page;
+		longpage->xlp_sysid = ControlFile.system_identifier;
+		longpage->xlp_seg_size = ControlFile.xlog_seg_size;
+		longpage->xlp_xlog_blcksz = ControlFile.xlog_blcksz;
+	}
+	else
+		page->xlp_pageaddr = ControlFile.checkPointCopy.redo - SizeOfXLogShortPHD;	
+
+	/* Insert the initial checkpoint record */
+	recptr = (char *) page + SizeOfXLogLongPHD;
+	record = (XLogRecord *) recptr;
+	record->xl_prev = 0;
+	record->xl_xid = InvalidTransactionId;
+	record->xl_tot_len = SizeOfXLogRecord + SizeOfXLogRecordDataHeaderShort + sizeof(CheckPoint);
+	record->xl_info = XLOG_CHECKPOINT_SHUTDOWN;
+	record->xl_rmid = RM_XLOG_ID;
+
+	recptr += SizeOfXLogRecord;
+	*(recptr++) = (char) XLR_BLOCK_ID_DATA_SHORT;
+	*(recptr++) = sizeof(CheckPoint);
+	memcpy(recptr, &ControlFile.checkPointCopy,
+		   sizeof(CheckPoint));
+
+	INIT_CRC32C(crc);
+	COMP_CRC32C(crc, ((char *) record) + SizeOfXLogRecord, record->xl_tot_len - SizeOfXLogRecord);
+	COMP_CRC32C(crc, (char *) record, offsetof(XLogRecord, xl_crc));
+	FIN_CRC32C(crc);
+	record->xl_crc = crc;
+
+	XLogFilePath(xlog_relative_path, ControlFile.checkPointCopy.ThisTimeLineID,
+				 newXlogSegNo, ControlFile.xlog_seg_size);
+
+	path = psprintf("%s/%s", base_path, xlog_relative_path);
+	fd = open(path, O_RDWR | O_CREAT | O_EXCL | PG_BINARY, S_IRUSR | S_IWUSR);
+	if (fd < 0)
+	{
+		zenith_log(ERROR,"could not open file \"%s\": %m", path);
+		exit(1);
+	}
+
+	errno = 0;
+
+	/* Fill the rest of the file with zeroes */
+	for (nbytes = 0; nbytes < ControlFile.xlog_seg_size; nbytes += XLOG_BLCKSZ)
+	{
+		errno = 0;
+		/* Write the block with generated checkpoint record. */
+		if (nbytes / XLOG_BLCKSZ == newXlogSegNo)
+		{
+			elog(LOG, "write target page, %d", nbytes / XLOG_BLCKSZ);
+			if(write(fd, targetbuffer.data, XLOG_BLCKSZ) != XLOG_BLCKSZ)
+			{
+				if (errno == 0)
+					errno = ENOSPC;
+				zenith_log(ERROR,"could not write file \"%s\": %m", path);
+				exit(1);
+			}
+		}
+		/* Write zeroed blocks. */
+		else 
+		{
+			if (write(fd, buffer.data, XLOG_BLCKSZ) != XLOG_BLCKSZ)
+			{
+				if (errno == 0)
+					errno = ENOSPC;
+				zenith_log(ERROR,"could not write file \"%s\": %m", path);
+				exit(1);
+			}
+		}
+	}
+
+	if (fsync(fd) != 0)
+	{
+		zenith_log(ERROR,"fsync error: %m");
+		exit(1);
+	}
+
+	close(fd);
+}
+
+/* Given base path of compute node's PGDATA 
+ *
+ * write to this PGDATA new pg_control, fake WAL and few more files,
+ * needed to start postgres
+ */
+Datum
+zenith_store_init_computenode(PG_FUNCTION_ARGS)
+{
+	char *base_path = PG_GETARG_CSTRING(0);
+	char *dir;
+	char *fpath;
+	bool crc_ok;
+	ControlFileData *controlfile;
+	FILE *f;
+
+	if (!is_absolute_path(base_path))
+		zenith_log(ERROR, "base_path must be absolute path");
+
+	dir = psprintf("%s/global", base_path);
+	pg_mkdir_recursive(dir, S_IRUSR | S_IWUSR);
+
+	fpath = psprintf("%s/%s", base_path, XLOG_CONTROL_FILE);
+
+	controlfile = get_controlfile(".", &crc_ok);
+
+	controlfile->state = DB_SHUTDOWNED;
+
+	//TODO use real LSN
+	controlfile->checkPointCopy.redo = SizeOfXLogLongPHD;
+	controlfile->checkPoint = controlfile->checkPointCopy.redo;
+
+  	f = fopen (fpath,"w");
+	fclose(f);
+
+	update_controlfile(base_path, controlfile, true);
+
+	/* generate mock WAL file */
+	WriteFakeXLOG(base_path, *controlfile);
+
+	/* copy relmapper files*/
+	char *from_fpath = psprintf("global/pg_filenode.map");
+	char *to_fpath = psprintf("%s/global/pg_filenode.map", base_path);
+
+	copy_file(from_fpath, to_fpath);
+
+	/* handle per database relmapper files
+	 * TODO: Now it only works with template and current database
+	 */
+
+	dir = psprintf("%s/base/%u", base_path, MyDatabaseId);
+	pg_mkdir_recursive(dir, S_IRWXU);
+
+	from_fpath = psprintf("base/%u/pg_filenode.map", MyDatabaseId);
+	to_fpath = psprintf("%s/base/%u/pg_filenode.map", base_path, MyDatabaseId);
+
+	copy_file(from_fpath, to_fpath);
+
+	/* Postgres wants to see PG_VERSION file in each database subdir. Copy it from template1
+	 * TODO: Now it only works with template and current database
+	 */
+	from_fpath = psprintf("%s/base/1/PG_VERSION", base_path);
+	to_fpath = psprintf("%s/base/%u/PG_VERSION", base_path, MyDatabaseId);
+
+	copy_file(from_fpath, to_fpath);
+
+	PG_RETURN_VOID();
+}
+
 
 void
 memstore_insert(PerPageWalHashKey key, XLogRecPtr lsn, uint8 my_block_id, XLogRecord *record)

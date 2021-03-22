@@ -10,3 +10,6 @@ CREATE FUNCTION zenith_store.dispatcher_loop() RETURNS void
 AS 'MODULE_PATHNAME','zenith_store_dispatcher'
 LANGUAGE C;
 
+CREATE FUNCTION zenith_store.init_computenode(cstring) RETURNS void
+AS 'MODULE_PATHNAME','zenith_store_init_computenode'
+LANGUAGE C;
