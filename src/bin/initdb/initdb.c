@@ -148,6 +148,8 @@ static char *xlog_dir = NULL;
 static char *str_wal_segment_size_mb = NULL;
 static int	wal_segment_size_mb;
 
+static bool compute_node = false;
+
 
 /* internal vars */
 static const char *progname;
@@ -2843,6 +2845,16 @@ initialize_data_directory(void)
 	/* Now create all the text config files */
 	setup_config();
 
+	/* We're done here. */
+	if (compute_node)
+	{
+		/* Make the per-database PG_VERSION for template1 */
+		write_version_file("base/1");
+		check_ok();
+		/* Skip  bootstrap for compute_node, we will get all info from pageserver. */
+		return;
+	}
+
 	/* Bootstrap template1 */
 	bootstrap_template1();
 
@@ -2850,6 +2862,8 @@ initialize_data_directory(void)
 	 * Make the per-database PG_VERSION for template1 only after init'ing it
 	 */
 	write_version_file("base/1");
+
+
 
 	/*
 	 * Create the stuff we don't need to use bootstrap mode for, using a
@@ -2932,6 +2946,7 @@ main(int argc, char *argv[])
 		{"nosync", no_argument, NULL, 'N'}, /* for backwards compatibility */
 		{"no-sync", no_argument, NULL, 'N'},
 		{"no-instructions", no_argument, NULL, 13},
+		{"compute-node", no_argument, NULL, 14},
 		{"sync-only", no_argument, NULL, 'S'},
 		{"waldir", required_argument, NULL, 'X'},
 		{"wal-segsize", required_argument, NULL, 12},
@@ -3074,6 +3089,9 @@ main(int argc, char *argv[])
 				break;
 			case 13:
 				noinstructions = true;
+				break;
+			case 14:
+				compute_node = true;
 				break;
 			case 'g':
 				SetDataDirectoryCreatePerm(PG_DIR_MODE_GROUP);
