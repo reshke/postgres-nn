@@ -365,6 +365,7 @@ zenith_store_dispatcher(PG_FUNCTION_ARGS)
 			&& messageTag(raw_req) != T_ZenithUnlinkRequest
 			&& messageTag(raw_req) != T_ZenithNblocksRequest
 			&& messageTag(raw_req) != T_ZenithReadRequest
+			&& messageTag(raw_req) != T_ZenithPageExistsRequest
 			&& messageTag(raw_req) != T_ZenithCreateRequest
 			&& messageTag(raw_req) != T_ZenithExtendRequest)
 		{

@@ -32,6 +32,7 @@ typedef enum
 	T_ZenithUnlinkRequest,
 	T_ZenithNblocksRequest,
 	T_ZenithReadRequest,
+	T_ZenithPageExistsRequest,
 	T_ZenithCreateRequest,
 	T_ZenithExtendRequest,
 
@@ -114,4 +115,6 @@ extern void zenith_truncate(SMgrRelation reln, ForkNumber forknum,
 					   BlockNumber nblocks);
 extern void zenith_immedsync(SMgrRelation reln, ForkNumber forknum);
 
+extern bool zenith_slru_page_exists(RelFileNode rnode, BlockNumber blkno);
+extern void zenith_read_slru(RelFileNode rnode, BlockNumber blkno, char *buffer);
 #endif
