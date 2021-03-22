@@ -246,6 +246,10 @@ smgropen(RelFileNode rnode, BackendId backend)
 			 * catalog tables just as well.
 			 */
 			reln->smgr_which = rnode.relNode < FirstNormalObjectId ? SmgrMd : SmgrPageserver;
+
+			/* Request all needed pages from pageserver, including catalog */
+			if (computenode_mode)
+				reln->smgr_which = SmgrPageserver;
 		}
 		/*
 		 * FIXME: lazyrestore is 2, but we don't actually use the smgr API for the
