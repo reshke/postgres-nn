@@ -161,9 +161,10 @@ extern const char *multixact_identify(uint8 info);
 extern char *mxid_to_string(MultiXactId multi, int nmembers,
 							MultiXactMember *members);
 
-void get_multixact_offset_page_copy(int pageno, char *buffer);
-void get_multixact_member_page_copy(int pageno, char *buffer);
+extern void get_multixact_offset_page_copy(int pageno, char *buffer);
+extern void get_multixact_member_page_copy(int pageno, char *buffer);
 
+extern void multixact_redo_create_id_pageserver(XLogReaderState *record);
 /*
  * Defines for MultiXactOffset page sizes.  A page is the same BLCKSZ as is
  * used everywhere else in Postgres.
