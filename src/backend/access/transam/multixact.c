@@ -3422,3 +3422,23 @@ multixactmemberssyncfiletag(const FileTag *ftag, char *path)
 {
 	return SlruSyncFileTag(MultiXactMemberCtl, ftag, path);
 }
+
+void
+get_multixact_offset_page_copy(int pageno, char *buffer)
+{
+	int			slotno;
+	slotno = SimpleLruReadPage_ReadOnly(MultiXactOffsetCtl, pageno, InvalidTransactionId);
+	memcpy(buffer, MultiXactOffsetCtl->shared->page_buffer[slotno], BLCKSZ);
+	//Lock was taken by SimpleLruReadPage_ReadOnly
+	LWLockRelease(MultiXactOffsetSLRULock);
+}
+
+void
+get_multixact_member_page_copy(int pageno, char *buffer)
+{
+	int			slotno;
+	slotno = SimpleLruReadPage_ReadOnly(MultiXactMemberCtl, pageno, InvalidTransactionId);
+	memcpy(buffer, MultiXactMemberCtl->shared->page_buffer[slotno], BLCKSZ);
+	//Lock was taken by SimpleLruReadPage_ReadOnly
+	LWLockRelease(MultiXactMemberSLRULock);
+}

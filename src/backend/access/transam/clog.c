@@ -1022,3 +1022,14 @@ clogsyncfiletag(const FileTag *ftag, char *path)
 {
 	return SlruSyncFileTag(XactCtl, ftag, path);
 }
+
+ 
+void
+get_xact_page_copy(int pageno, char *buffer)
+{
+	int			slotno;
+	slotno = SimpleLruReadPage_ReadOnly(XactCtl, pageno, InvalidTransactionId);
+	memcpy(buffer, XactCtl->shared->page_buffer[slotno], BLCKSZ);
+	//Lock was taken by SimpleLruReadPage_ReadOnly
+	LWLockRelease(XactSLRULock);
+}

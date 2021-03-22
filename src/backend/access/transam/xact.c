@@ -5772,6 +5772,27 @@ XactLogAbortRecord(TimestampTz abort_time,
 	return XLogInsert(RM_XACT_ID, info);
 }
 
+extern void
+xact_redo_commit_pageserver(XLogReaderState *record)
+{
+	xl_xact_commit *xlrec = (xl_xact_commit *) XLogRecGetData(record);
+	xl_xact_parsed_commit parsed;
+	TimestampTz commit_time;
+	TransactionId xid = XLogRecGetXid(record);
+	XLogRecPtr lsn = record->EndRecPtr;
+	RepOriginId origin_id = XLogRecGetOrigin(record);
+
+	ParseCommitRecord(XLogRecGetInfo(record), xlrec, &parsed);
+
+	if (parsed.xinfo & XACT_XINFO_HAS_ORIGIN)
+		commit_time = parsed.origin_timestamp;
+	else
+		commit_time = parsed.xact_time;
+	TransactionTreeSetCommitTsData(xid, parsed.nsubxacts, parsed.subxacts,
+								   commit_time, origin_id, false);
+	TransactionIdCommitTree(xid, parsed.nsubxacts, parsed.subxacts);
+}
+
 /*
  * Before 9.0 this was a fairly short function, but now it performs many
  * actions for which the order of execution is critical.
@@ -5911,6 +5932,18 @@ xact_redo_commit(xl_xact_parsed_commit *parsed,
 	 */
 	if (XactCompletionApplyFeedback(parsed->xinfo))
 		XLogRequestWalReceiverReply();
+}
+
+
+extern void
+xact_redo_abort_pageserver(XLogReaderState *record)
+{
+	xl_xact_abort *xlrec = (xl_xact_abort *) XLogRecGetData(record);
+	xl_xact_parsed_abort parsed;
+	TransactionId xid = XLogRecGetXid(record);
+	ParseAbortRecord(XLogRecGetInfo(record), xlrec, &parsed);
+
+	TransactionIdAbortTree(xid, parsed.nsubxacts, parsed.subxacts);
 }
 
 /*
