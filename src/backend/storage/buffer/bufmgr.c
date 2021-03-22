@@ -1052,6 +1052,14 @@ BufferAlloc(SMgrRelation smgr, char relpersistence, ForkNumber forkNum,
 	buf_id = BufTableLookup(&newTag, newHash);
 	if (buf_id >= 0)
 	{
+		// /* Ignore buffer cache in computenode_mode. DEBUG only */
+		// if (computenode_mode)
+		// {
+		// 	buf_id = 0;
+		// }
+		// else
+		{
+
 		/*
 		 * Found it.  Now, pin the buffer so no one can steal it from the
 		 * buffer pool, and check to see if the correct data has been loaded
@@ -1086,6 +1094,7 @@ BufferAlloc(SMgrRelation smgr, char relpersistence, ForkNumber forkNum,
 		}
 
 		return buf;
+		}
 	}
 
 	/*
