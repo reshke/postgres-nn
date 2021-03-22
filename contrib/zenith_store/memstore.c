@@ -31,6 +31,12 @@
 #include "memstore.h"
 #include "zenith_store.h"
 
+#include "access/clog.h"
+#include "access/xact.h"
+#include "access/multixact.h"
+#include "access/slru.h"
+
+
 MemStore *memStore;
 
 static MemoryContext RestoreCxt;
@@ -222,17 +228,47 @@ get_page_by_key(PerPageWalHashKey *key, char **raw_page_data)
 		if (!DecodeXLogRecord(&reader_state, record_entry->record, &errormsg))
 			zenith_log(ERROR, "failed to decode WAL record: %s", errormsg);
 
-		current_block_id = record_entry->my_block_id;
-		InRecovery = true;
-		RmgrTable[record_entry->record->xl_rmid].rm_redo(&reader_state);
-		InRecovery = false;
+		/* use custom functions to avoid updating in memory Xid values */
+		if (record_entry->record->xl_rmid == RM_XACT_ID)
+		{
+			zenith_log(RequestTrace, "Handle RM_XACT_ID  record");
+			uint8		info = record_entry->record->xl_info & XLOG_XACT_OPMASK;
+			if (info == XLOG_XACT_COMMIT)
+				xact_redo_commit_pageserver(&reader_state);
+			else if (info == XLOG_XACT_ABORT)
+				xact_redo_abort_pageserver(&reader_state);
+		}
+		else
+		{
+			current_block_id = record_entry->my_block_id;
+			InRecovery = true;
+			RmgrTable[record_entry->record->xl_rmid].rm_redo(&reader_state);
+			InRecovery = false;
+		}
 
 		chain_len++;
 	}
 	zenith_log(RequestTrace, "Page restored: chain len is %d, last entry ptr=%p",
 		chain_len, first_record_entry);
 
-	/* Take a verbatim copy of the page */
+	if (key->rnode.relNode == CLOG_RELNODE || 
+		key->rnode.relNode == MULTIXACT_OFFSETS_RELNODE ||
+		key->rnode.relNode == MULTIXACT_MEMBERS_RELNODE)
+	{
+		zenith_log(RequestTrace, "Page restored SLRU: chain len is %d, last entry ptr=%p",
+				   chain_len, first_record_entry);
+
+		if (key->rnode.relNode == CLOG_RELNODE)
+			get_xact_page_copy(key->blkno, *raw_page_data);
+		else if (key->rnode.relNode == MULTIXACT_OFFSETS_RELNODE)
+			get_multixact_offset_page_copy(key->blkno, *raw_page_data);
+		else if (key->rnode.relNode == MULTIXACT_MEMBERS_RELNODE)
+			get_multixact_member_page_copy(key->blkno, *raw_page_data);
+
+		return;
+	}
+
+	/* Take a verbatim copy of the page in shared buffers */
 	Buffer		buf;
 	BufferTag	newTag;			/* identity of requested block */
 	uint32		newHash;		/* hash value for newTag */
@@ -444,6 +480,26 @@ zenith_store_dispatcher(PG_FUNCTION_ARGS)
 			resp.ok = true;
 
 			elog(LOG, "nblocks: %d (found: %d)", n_pages, found);
+		}
+		else if (req->tag == T_ZenithPageExistsRequest)
+		{
+			PerPageWalHashKey key;
+			char *raw_page_data = (char *) palloc(BLCKSZ);
+			bool found = false;
+			PerPageWalHashEntry *entry;
+
+			memset(&key, '\0', sizeof(PerPageWalHashKey));
+			key.system_identifier = req->system_id;
+			key.rnode = req->page_key.rnode;
+			key.forknum = req->page_key.forknum;
+			key.blkno = req->page_key.blkno;
+
+			LWLockAcquire(memStore->lock, LW_EXCLUSIVE);
+			entry = (PerPageWalHashEntry *) hash_search(memStore->pages, &key, HASH_FIND, &found);
+			resp.tag = T_ZenithStatusResponse;
+			resp.ok = found;
+			LWLockRelease(memStore->lock);
+
 		}
 		else if (req->tag == T_ZenithReadRequest)
 		{

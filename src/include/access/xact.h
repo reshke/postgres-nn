@@ -454,6 +454,9 @@ extern XLogRecPtr XactLogAbortRecord(TimestampTz abort_time,
 									 const char *twophase_gid);
 extern void xact_redo(XLogReaderState *record);
 
+extern void xact_redo_commit_pageserver(XLogReaderState *record);
+extern void xact_redo_abort_pageserver(XLogReaderState *record);
+
 /* xactdesc.c */
 extern void xact_desc(StringInfo buf, XLogReaderState *record);
 extern const char *xact_identify(uint8 info);

@@ -161,4 +161,6 @@ extern const char *multixact_identify(uint8 info);
 extern char *mxid_to_string(MultiXactId multi, int nmembers,
 							MultiXactMember *members);
 
+void get_multixact_offset_page_copy(int pageno, char *buffer);
+void get_multixact_member_page_copy(int pageno, char *buffer);
 #endif							/* MULTIXACT_H */

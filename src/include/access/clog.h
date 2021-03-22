@@ -52,6 +52,8 @@ extern void TruncateCLOG(TransactionId oldestXact, Oid oldestxid_datoid);
 
 extern int	clogsyncfiletag(const FileTag *ftag, char *path);
 
+void get_xact_page_copy(int pageno, char *buffer);
+
 /* XLOG stuff */
 #define CLOG_ZEROPAGE		0x00
 #define CLOG_TRUNCATE		0x10
