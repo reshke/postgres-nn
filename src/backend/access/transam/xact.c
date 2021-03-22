@@ -5772,7 +5772,7 @@ XactLogAbortRecord(TimestampTz abort_time,
 	return XLogInsert(RM_XACT_ID, info);
 }
 
-extern void
+void
 xact_redo_commit_pageserver(XLogReaderState *record)
 {
 	xl_xact_commit *xlrec = (xl_xact_commit *) XLogRecGetData(record);
@@ -5935,7 +5935,7 @@ xact_redo_commit(xl_xact_parsed_commit *parsed,
 }
 
 
-extern void
+void
 xact_redo_abort_pageserver(XLogReaderState *record)
 {
 	xl_xact_abort *xlrec = (xl_xact_abort *) XLogRecGetData(record);

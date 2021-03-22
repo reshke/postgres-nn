@@ -496,6 +496,7 @@ get_page_by_key(PerPageWalHashKey *key, char **raw_page_data)
 			.EndRecPtr = record_entry->lsn,
 			.decoded_record = record_entry->record
 		};
+		bool normal_redo = false;
 
 		if (!DecodeXLogRecord(&reader_state, record_entry->record, &errormsg))
 			zenith_log(ERROR, "failed to decode WAL record: %s", errormsg);
@@ -503,14 +504,25 @@ get_page_by_key(PerPageWalHashKey *key, char **raw_page_data)
 		/* use custom functions to avoid updating in memory Xid values */
 		if (record_entry->record->xl_rmid == RM_XACT_ID)
 		{
-			zenith_log(RequestTrace, "Handle RM_XACT_ID  record");
 			uint8		info = record_entry->record->xl_info & XLOG_XACT_OPMASK;
+			zenith_log(RequestTrace, "Handle RM_XACT_ID  record");
 			if (info == XLOG_XACT_COMMIT)
 				xact_redo_commit_pageserver(&reader_state);
 			else if (info == XLOG_XACT_ABORT)
 				xact_redo_abort_pageserver(&reader_state);
 		}
-		else
+		else if (record_entry->record->xl_rmid == RM_MULTIXACT_ID)
+		{
+			uint8		info = record_entry->record->xl_info & ~XLR_INFO_MASK;
+			zenith_log(RequestTrace, "Handle RM_MULTIXACT_ID record");
+
+			if (info == XLOG_MULTIXACT_CREATE_ID)
+				multixact_redo_create_id_pageserver(&reader_state);
+			else
+				normal_redo = true;
+		}
+
+		if (normal_redo)
 		{
 			current_block_id = record_entry->my_block_id;
 			InRecovery = true;
