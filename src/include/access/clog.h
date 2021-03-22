@@ -62,4 +62,16 @@ extern void clog_redo(XLogReaderState *record);
 extern void clog_desc(StringInfo buf, XLogReaderState *record);
 extern const char *clog_identify(uint8 info);
 
+/* We need two bits per xact, so four xacts fit in a byte */
+#define CLOG_BITS_PER_XACT	2
+#define CLOG_XACTS_PER_BYTE 4
+#define CLOG_XACTS_PER_PAGE (BLCKSZ * CLOG_XACTS_PER_BYTE)
+#define CLOG_XACT_BITMASK	((1 << CLOG_BITS_PER_XACT) - 1)
+
+#define TransactionIdToPage(xid)	((xid) / (TransactionId) CLOG_XACTS_PER_PAGE)
+#define TransactionIdToPgIndex(xid) ((xid) % (TransactionId) CLOG_XACTS_PER_PAGE)
+#define TransactionIdToByte(xid)	(TransactionIdToPgIndex(xid) / CLOG_XACTS_PER_BYTE)
+#define TransactionIdToBIndex(xid)	((xid) % (TransactionId) CLOG_XACTS_PER_BYTE)
+
+
 #endif							/* CLOG_H */

@@ -74,6 +74,7 @@
 #define GetLSNIndex(slotno, xid)	((slotno) * CLOG_LSNS_PER_PAGE + \
 	((xid) % (TransactionId) CLOG_XACTS_PER_PAGE) / CLOG_XACTS_PER_LSN_GROUP)
 
+
 /*
  * The number of subtransactions below which we consider to apply clog group
  * update optimization.  Testing reveals that the number higher than this can
