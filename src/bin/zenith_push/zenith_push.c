@@ -401,7 +401,53 @@ _tarWriteHeader(const char *filename, const char *linktarget,
 static void
 handlefile(const char *datadir, const char *path, struct stat *statbuf)
 {
-	if (isRelDataFile(path))
+	/* Handle a few special files separately */
+	if (strstr(path, "pg_control"))
+	{
+		char		s3pathbuf[MAXPGPATH];
+
+		snprintf(s3pathbuf, sizeof(s3pathbuf),
+				 "relationdata/%s_%08X%08X",
+				 path, (uint32) (walpos >> 32), (uint32) walpos);
+		put_s3_file(curl, path, s3pathbuf, statbuf->st_size);
+	}
+	else if (strstr(path, "pg_filenode.map"))
+	{
+		char		s3pathbuf[MAXPGPATH];
+
+		snprintf(s3pathbuf, sizeof(s3pathbuf),
+				 "relationdata/%s_%08X%08X",
+				 path, (uint32) (walpos >> 32), (uint32) walpos);
+		put_s3_file(curl, path, s3pathbuf, statbuf->st_size);
+	}
+	else if (strstr(path, "pg_xact"))
+	{
+		char		s3pathbuf[MAXPGPATH];
+
+		snprintf(s3pathbuf, sizeof(s3pathbuf),
+				 "nonreldata/%s_%08X%08X",
+				 path, (uint32) (walpos >> 32), (uint32) walpos);
+		put_s3_file(curl, path, s3pathbuf, statbuf->st_size);
+	}
+	else if (strstr(path, "members"))
+	{
+		char		s3pathbuf[MAXPGPATH];
+
+		snprintf(s3pathbuf, sizeof(s3pathbuf),
+				 "nonreldata/%s_%08X%08X",
+				 path, (uint32) (walpos >> 32), (uint32) walpos);
+		put_s3_file(curl, path, s3pathbuf, statbuf->st_size);
+	}
+	else if (strstr(path, "offsets"))
+	{
+		char		s3pathbuf[MAXPGPATH];
+
+		snprintf(s3pathbuf, sizeof(s3pathbuf),
+				 "nonreldata/%s_%08X%08X",
+				 path, (uint32) (walpos >> 32), (uint32) walpos);
+		put_s3_file(curl, path, s3pathbuf, statbuf->st_size);
+	}
+	else if (isRelDataFile(path))
 	{
 		char		s3pathbuf[MAXPGPATH];
 
