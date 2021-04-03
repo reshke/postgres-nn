@@ -455,18 +455,21 @@ zenith_read(SMgrRelation reln, ForkNumber forkNum, BlockNumber blkno,
 #define PD_UNLOGGED 0x8
 
 bool
-zenith_slru_page_exists(RelFileNode rnode, BlockNumber blkno)
+zenith_nonrel_page_exists(RelFileNode rnode, BlockNumber blkno, int forknum)
 {
 	if (!loaded)
 		zenith_load();
 
 	bool ok;
 
+	elog(LOG, "[ZENITH_SMGR] read nonrel relnode %u/%u/%u_%d blkno %u",
+		rnode.spcNode, rnode.dbNode, rnode.relNode, forknum, blkno);
+
 	ZenithResponse *resp = page_server->request((ZenithRequest) {
 		.tag = T_ZenithPageExistsRequest,
 		.page_key = {
 			.rnode = rnode,
-			.forknum = 0,
+			.forknum = forknum,
 			.blkno = blkno
 		}
 	});
@@ -476,25 +479,29 @@ zenith_slru_page_exists(RelFileNode rnode, BlockNumber blkno)
 }
 
 void
-zenith_read_slru(RelFileNode rnode, BlockNumber blkno, char *buffer)
+zenith_read_nonrel(RelFileNode rnode, BlockNumber blkno, char *buffer, int forknum)
 {
 	if (!loaded)
 		zenith_load();
 
-	elog(LOG, "[ZENITH_SMGR] read SLRU relnode %u/%u/%u blkno %u",
-		rnode.spcNode, rnode.dbNode, rnode.relNode, blkno);
+	elog(LOG, "[ZENITH_SMGR] read nonrel relnode %u/%u/%u_%d blkno %u",
+		rnode.spcNode, rnode.dbNode, rnode.relNode, forknum, blkno);
 	ZenithResponse *resp = page_server->request((ZenithRequest) {
 		.tag = T_ZenithReadRequest,
 		.page_key = {
 			.rnode = rnode,
-			.forknum = MAIN_FORKNUM,
+			.forknum = forknum,
 			.blkno = blkno
 		}
 	});
 
+	if (!resp->ok)
+		elog(ERROR, "[ZENITH_SMGR] smgr page not found");
+
 	memcpy(buffer, resp->page, BLCKSZ);
 	pfree(resp);
 }
+
 
 /*
  *	zenith_write() -- Write the supplied block at the appropriate location.

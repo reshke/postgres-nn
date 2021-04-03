@@ -56,6 +56,7 @@
 #include "utils/inval.h"
 #include "utils/relmapper.h"
 
+#include "storage/pagestore_client.h"
 
 /*
  * The map file is critical data: we have no automatic method for recovering
@@ -703,19 +704,34 @@ load_relmap_file(bool shared)
 	int			fd;
 	int			r;
 
+	RelFileNode rnode;
+	rnode.spcNode = 0;
+	rnode.relNode = 0;
+
 	if (shared)
 	{
+		rnode.dbNode = GLOBALTABLESPACE_OID;
 		snprintf(mapfilename, sizeof(mapfilename), "global/%s",
 				 RELMAPPER_FILENAME);
 		map = &shared_map;
 	}
 	else
 	{
+		rnode.dbNode = DEFAULTTABLESPACE_OID;
 		snprintf(mapfilename, sizeof(mapfilename), "%s/%s",
 				 DatabasePath, RELMAPPER_FILENAME);
 		map = &local_map;
 	}
 
+	//43 is magic for RELMAPPER_FILENAME in page cache
+	if (computenode_mode)
+	{
+		/* Request data ... */
+		elog(LOG, "request RELMAPPER_FILENAME from page server");
+		map = palloc0(512);
+		zenith_read_nonrel(rnode, 0, (char *) map, 43);
+	}
+	else{
 	/* Read data ... */
 	fd = OpenTransientFile(mapfilename, O_RDONLY | PG_BINARY);
 	if (fd < 0)
@@ -752,7 +768,7 @@ load_relmap_file(bool shared)
 				(errcode_for_file_access(),
 				 errmsg("could not close file \"%s\": %m",
 						mapfilename)));
-
+	}
 	/* check for correct magic number, etc */
 	if (map->magic != RELMAPPER_FILEMAGIC ||
 		map->num_mappings < 0 ||

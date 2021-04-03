@@ -645,15 +645,17 @@ SimpleLruDoesPhysicalPageExist(SlruCtl ctl, int pageno)
 		RelFileNode rnode;
 		rnode.dbNode = 0;
 		rnode.spcNode = 0;
+		rnode.relNode = 0;
 
+		int forknum;
 		if (strcmp(ctl->Dir, "pg_xact") == 0)
-			rnode.relNode = CLOG_RELNODE;
+			forknum = PG_CLOG_FORKNUM;
 		else if (strcmp(ctl->Dir, "pg_multixact/offsets") == 0)
-			rnode.relNode = MULTIXACT_OFFSETS_RELNODE;
+			forknum = PG_MXACT_OFFSET_FORKNUM;
 		else if (strcmp(ctl->Dir, "pg_multixact/members") == 0)
-			rnode.relNode = MULTIXACT_MEMBERS_RELNODE;
+			forknum = PG_MXACT_MEMBERS_FORKNUM;
 
-		return zenith_slru_page_exists(rnode, pageno);
+		return zenith_nonrel_page_exists(rnode, pageno, forknum);
 	}
 
 	fd = OpenTransientFile(path, O_RDONLY | PG_BINARY);
@@ -724,15 +726,17 @@ SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno)
 		RelFileNode rnode;
 		rnode.dbNode = 0;
 		rnode.spcNode = 0;
+		rnode.relNode = 0;
 
+		int forknum;
 		if (strcmp(ctl->Dir, "pg_xact") == 0)
-			rnode.relNode = CLOG_RELNODE;
+			forknum = PG_CLOG_FORKNUM;
 		else if (strcmp(ctl->Dir, "pg_multixact/offsets") == 0)
-			rnode.relNode = MULTIXACT_OFFSETS_RELNODE;
+			forknum = PG_MXACT_OFFSET_FORKNUM;
 		else if (strcmp(ctl->Dir, "pg_multixact/members") == 0)
-			rnode.relNode = MULTIXACT_MEMBERS_RELNODE;
+			forknum = PG_MXACT_MEMBERS_FORKNUM;
 
-		zenith_read_slru(rnode, pageno, shared->page_buffer[slotno]);
+		zenith_read_nonrel(rnode, pageno, shared->page_buffer[slotno], forknum);
 		return true;
 	}
 

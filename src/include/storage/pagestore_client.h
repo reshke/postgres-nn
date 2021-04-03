@@ -117,6 +117,6 @@ extern void zenith_truncate(SMgrRelation reln, ForkNumber forknum,
 					   BlockNumber nblocks);
 extern void zenith_immedsync(SMgrRelation reln, ForkNumber forknum);
 
-extern bool zenith_slru_page_exists(RelFileNode rnode, BlockNumber blkno);
-extern void zenith_read_slru(RelFileNode rnode, BlockNumber blkno, char *buffer);
+extern bool zenith_nonrel_page_exists(RelFileNode rnode, BlockNumber blkno, int forknum);
+extern void zenith_read_nonrel(RelFileNode rnode, BlockNumber blkno, char *buffer, int forknum);
 #endif

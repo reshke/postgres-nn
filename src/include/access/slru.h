@@ -17,10 +17,10 @@
 #include "storage/lwlock.h"
 #include "storage/sync.h"
 
-/* Fake relnodes to communicate with zenith pageserver */
-#define CLOG_RELNODE 100500
-#define MULTIXACT_OFFSETS_RELNODE 200500
-#define MULTIXACT_MEMBERS_RELNODE 200501
+/* Fake forknums to communicate with zenith pageserver */
+#define PG_CLOG_FORKNUM 44
+#define PG_MXACT_OFFSET_FORKNUM 45
+#define PG_MXACT_MEMBERS_FORKNUM 46
 
 
 /*
