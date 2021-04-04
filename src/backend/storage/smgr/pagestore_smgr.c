@@ -481,8 +481,15 @@ zenith_nonrel_page_exists(RelFileNode rnode, BlockNumber blkno, int forknum)
 void
 zenith_read_nonrel(RelFileNode rnode, BlockNumber blkno, char *buffer, int forknum)
 {
+	XLogRecPtr lsn;
+
 	if (!loaded)
 		zenith_load();
+
+	if (RecoveryInProgress())
+		lsn = GetXLogReplayRecPtr(NULL);
+	else
+		lsn = GetFlushRecPtr();
 
 	elog(LOG, "[ZENITH_SMGR] read nonrel relnode %u/%u/%u_%d blkno %u",
 		rnode.spcNode, rnode.dbNode, rnode.relNode, forknum, blkno);
@@ -492,7 +499,8 @@ zenith_read_nonrel(RelFileNode rnode, BlockNumber blkno, char *buffer, int forkn
 			.rnode = rnode,
 			.forknum = forknum,
 			.blkno = blkno
-		}
+		},
+		.lsn = lsn
 	});
 
 	if (!resp->ok)
