@@ -443,15 +443,31 @@ zenith_read(SMgrRelation reln, ForkNumber forkNum, BlockNumber blkno,
 	});
 
 	if (!resp->ok)
-		ereport(ERROR,
-				(errcode(ERRCODE_IO_ERROR),
-				 errmsg("could not read block %u in rel %u/%u/%u.%u from page server",
-						blkno,
-						reln->smgr_rnode.node.spcNode,
-						reln->smgr_rnode.node.dbNode,
-						reln->smgr_rnode.node.relNode,
-						forkNum)));
+	{
+		if (forkNum == 2 || forkNum == 3)
+		{
+			ereport(WARNING,
+					(errcode(ERRCODE_IO_ERROR),
+					errmsg("could not read block %u in rel %u/%u/%u.%u from page server",
+							blkno,
+							reln->smgr_rnode.node.spcNode,
+							reln->smgr_rnode.node.dbNode,
+							reln->smgr_rnode.node.relNode,
+							forkNum)));
+			memset(buffer, 0, BLCKSZ);
+			pfree(resp);
+			return;
+		}
 
+		ereport(ERROR,
+			(errcode(ERRCODE_IO_ERROR),
+			errmsg("could not read block %u in rel %u/%u/%u.%u from page server",
+					blkno,
+					reln->smgr_rnode.node.spcNode,
+					reln->smgr_rnode.node.dbNode,
+					reln->smgr_rnode.node.relNode,
+					forkNum)));
+	}
 	memcpy(buffer, resp->page, BLCKSZ);
 	pfree(resp);
 }

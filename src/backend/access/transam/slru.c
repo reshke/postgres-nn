@@ -808,17 +808,6 @@ SlruPhysicalWritePage(SlruCtl ctl, int pageno, int slotno, SlruWriteAll fdata)
 	/* update the stats counter of written pages */
 	pgstat_count_slru_page_written(shared->slru_stats_idx);
 
-	if (computenode_mode &&
-		page_server_connstring && page_server_connstring[0])
-	{
-		if (strcmp(ctl->Dir, "pg_xact") == 0 ||
-			strcmp(ctl->Dir, "pg_multixact/offsets") == 0 ||
-			strcmp(ctl->Dir, "pg_multixact/members") == 0)
-
-		elog(DEBUG2, "[ZENITH] SLRU SlruPhysicalWritePage noop");
-		return true;
-	}
-
 	/*
 	 * Honor the write-WAL-before-data rule, if appropriate, so that we do not
 	 * write out data before associated WAL records.  This is the same action
@@ -859,6 +848,17 @@ SlruPhysicalWritePage(SlruCtl ctl, int pageno, int slotno, SlruWriteAll fdata)
 			XLogFlush(max_lsn);
 			END_CRIT_SECTION();
 		}
+	}
+
+	if (computenode_mode &&
+		page_server_connstring && page_server_connstring[0])
+	{
+		if (strcmp(ctl->Dir, "pg_xact") == 0 ||
+			strcmp(ctl->Dir, "pg_multixact/offsets") == 0 ||
+			strcmp(ctl->Dir, "pg_multixact/members") == 0)
+
+		elog(DEBUG2, "[ZENITH] SLRU SlruPhysicalWritePage noop");
+		return true;
 	}
 
 	/*

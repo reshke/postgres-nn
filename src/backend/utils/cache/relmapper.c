@@ -705,7 +705,7 @@ load_relmap_file(bool shared)
 	int			r;
 
 	RelFileNode rnode;
-	rnode.dbNode = 0;
+	rnode.dbNode = MyDatabaseId;
 	rnode.relNode = 0;
 
 	if (shared)
@@ -718,6 +718,7 @@ load_relmap_file(bool shared)
 	else
 	{
 		rnode.spcNode = DEFAULTTABLESPACE_OID;
+
 		snprintf(mapfilename, sizeof(mapfilename), "%s/%s",
 				 DatabasePath, RELMAPPER_FILENAME);
 		map = &local_map;
