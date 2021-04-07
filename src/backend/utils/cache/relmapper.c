@@ -705,30 +705,29 @@ load_relmap_file(bool shared)
 	int			r;
 
 	RelFileNode rnode;
-	rnode.spcNode = 0;
+	rnode.dbNode = 0;
 	rnode.relNode = 0;
 
 	if (shared)
 	{
-		rnode.dbNode = GLOBALTABLESPACE_OID;
+		rnode.spcNode = GLOBALTABLESPACE_OID;
 		snprintf(mapfilename, sizeof(mapfilename), "global/%s",
 				 RELMAPPER_FILENAME);
 		map = &shared_map;
 	}
 	else
 	{
-		rnode.dbNode = DEFAULTTABLESPACE_OID;
+		rnode.spcNode = DEFAULTTABLESPACE_OID;
 		snprintf(mapfilename, sizeof(mapfilename), "%s/%s",
 				 DatabasePath, RELMAPPER_FILENAME);
 		map = &local_map;
 	}
 
-	//43 is magic for RELMAPPER_FILENAME in page cache
-	if (false)
+	if (computenode_mode)
 	{
 		/* Request data ... */
 		elog(LOG, "request RELMAPPER_FILENAME from page server");
-		map = palloc0(512);
+		//43 is magic for RELMAPPER_FILENAME in page cache
 		zenith_read_nonrel(rnode, 0, (char *) map, 43);
 		elog(LOG, "request RELMAPPER_FILENAME map-.magic %d", map->magic);
 	}
@@ -787,6 +786,8 @@ load_relmap_file(bool shared)
 		ereport(FATAL,
 				(errmsg("relation mapping file \"%s\" contains incorrect checksum",
 						mapfilename)));
+
+	elog(LOG, "load_relmap_file DONE");
 }
 
 /*

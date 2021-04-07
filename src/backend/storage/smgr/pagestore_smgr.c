@@ -428,6 +428,10 @@ zenith_read(SMgrRelation reln, ForkNumber forkNum, BlockNumber blkno,
 	else
 		lsn = GetFlushRecPtr();
 
+	elog(LOG, "[ZENITH_SMGR] read rel relnode %u/%u/%u_%d blkno %u lsn %lu",
+		reln->smgr_rnode.node.spcNode, reln->smgr_rnode.node.dbNode,
+		reln->smgr_rnode.node.relNode, forkNum, blkno, lsn);
+
 	resp = page_server->request((ZenithRequest) {
 		.tag = T_ZenithReadRequest,
 		.page_key = {
@@ -462,7 +466,7 @@ zenith_nonrel_page_exists(RelFileNode rnode, BlockNumber blkno, int forknum)
 
 	bool ok;
 
-	elog(LOG, "[ZENITH_SMGR] read nonrel relnode %u/%u/%u_%d blkno %u",
+	elog(LOG, "[ZENITH_SMGR] zenith_nonrel_page_exists relnode %u/%u/%u_%d blkno %u",
 		rnode.spcNode, rnode.dbNode, rnode.relNode, forknum, blkno);
 
 	ZenithResponse *resp = page_server->request((ZenithRequest) {
@@ -482,6 +486,12 @@ void
 zenith_read_nonrel(RelFileNode rnode, BlockNumber blkno, char *buffer, int forknum)
 {
 	XLogRecPtr lsn;
+	int bufsize = BLCKSZ;
+
+	//43 is magic for RELMAPPER_FILENAME in page cache
+	// relmapper files has non-standard size of 512bytes
+	if (forknum == 43)
+		bufsize = 512;
 
 	if (!loaded)
 		zenith_load();
@@ -491,8 +501,9 @@ zenith_read_nonrel(RelFileNode rnode, BlockNumber blkno, char *buffer, int forkn
 	else
 		lsn = GetFlushRecPtr();
 
-	elog(LOG, "[ZENITH_SMGR] read nonrel relnode %u/%u/%u_%d blkno %u",
-		rnode.spcNode, rnode.dbNode, rnode.relNode, forknum, blkno);
+	elog(LOG, "[ZENITH_SMGR] read nonrel relnode %u/%u/%u_%d blkno %u lsn %X/%X",
+		rnode.spcNode, rnode.dbNode, rnode.relNode, forknum, blkno,
+		(uint32) ((lsn) >> 32), (uint32) (lsn));
 	ZenithResponse *resp = page_server->request((ZenithRequest) {
 		.tag = T_ZenithReadRequest,
 		.page_key = {
@@ -506,7 +517,7 @@ zenith_read_nonrel(RelFileNode rnode, BlockNumber blkno, char *buffer, int forkn
 	if (!resp->ok)
 		elog(ERROR, "[ZENITH_SMGR] smgr page not found");
 
-	memcpy(buffer, resp->page, BLCKSZ);
+	memcpy(buffer, resp->page, bufsize);
 	pfree(resp);
 }
 
