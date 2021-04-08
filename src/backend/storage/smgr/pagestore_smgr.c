@@ -444,7 +444,7 @@ zenith_read(SMgrRelation reln, ForkNumber forkNum, BlockNumber blkno,
 
 	if (!resp->ok)
 	{
-		if (forkNum == 2 || forkNum == 3)
+		if (forkNum == 1 || forkNum == 2 || forkNum == 3)
 		{
 			ereport(WARNING,
 					(errcode(ERRCODE_IO_ERROR),

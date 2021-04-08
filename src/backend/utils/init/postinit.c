@@ -998,6 +998,7 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 	{
 		if (access(fullpath, F_OK) == -1)
 		{
+			//TODO create on demand
 			if (errno == ENOENT)
 				ereport(FATAL,
 						(errcode(ERRCODE_UNDEFINED_DATABASE),

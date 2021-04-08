@@ -33,9 +33,9 @@ typedef enum
 	T_ZenithUnlinkRequest,
 	T_ZenithNblocksRequest,
 	T_ZenithReadRequest,
-	T_ZenithPageExistsRequest,
 	T_ZenithCreateRequest,
 	T_ZenithExtendRequest,
+	T_ZenithPageExistsRequest,
 
 	/* pagestore -> pagestore_client */
 	T_ZenithStatusResponse = 100,
@@ -73,8 +73,8 @@ typedef struct
 {
 	ZenithMessageTag tag;
 	bool	ok;
-	const char   *page;
 	uint32	n_blocks;
+	const char   *page;
 } ZenithResponse;
 
 StringInfoData zm_pack(ZenithMessage *msg);

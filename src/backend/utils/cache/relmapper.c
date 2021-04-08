@@ -788,7 +788,6 @@ load_relmap_file(bool shared)
 				(errmsg("relation mapping file \"%s\" contains incorrect checksum",
 						mapfilename)));
 
-	elog(LOG, "load_relmap_file DONE");
 }
 
 /*

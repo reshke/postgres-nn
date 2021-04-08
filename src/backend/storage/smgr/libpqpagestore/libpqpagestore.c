@@ -144,7 +144,7 @@ zenith_call(ZenithRequest request)
 		|| messageTag(resp) == T_ZenithNblocksResponse
 		|| messageTag(resp) == T_ZenithReadResponse);
 
-	zenith_log(PqPageStoreTrace, "Got response: %s", zm_to_string((ZenithMessage *) resp));
+	//zenith_log(PqPageStoreTrace, "Got response: %s", zm_to_string((ZenithMessage *) resp));
 
 	/*
 	 * XXX: zm_to_string leak strings. Check with what memory contex all this methods
