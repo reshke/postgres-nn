@@ -856,8 +856,6 @@ multixact_redo_create_id_pageserver(XLogReaderState *record)
 {
 	xl_multixact_create *xlrec =
 	(xl_multixact_create *) XLogRecGetData(record);
-	TransactionId max_xid;
-	int			i;
 
 	/* Store the data back into the SLRU files */
 	RecordNewMultiXact(xlrec->mid, xlrec->moff, xlrec->nmembers,

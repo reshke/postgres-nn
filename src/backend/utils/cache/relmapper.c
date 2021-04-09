@@ -727,10 +727,10 @@ load_relmap_file(bool shared)
 	if (computenode_mode)
 	{
 		/* Request data ... */
-		elog(LOG, "request RELMAPPER_FILENAME from page server");
-		//43 is magic for RELMAPPER_FILENAME in page cache
+		elog(DEBUG5, "request RELMAPPER_FILENAME from page server");
+		//43 is magic forknum for RELMAPPER_FILENAME in page cache
 		zenith_read_nonrel(rnode, 0, (char *) map, 43);
-		elog(LOG, "request RELMAPPER_FILENAME map-.magic %d", map->magic);
+		elog(DEBUG5, "request RELMAPPER_FILENAME map-.magic %d", map->magic);
 	}
 	else{
 	/* Read data ... */

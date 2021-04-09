@@ -642,12 +642,12 @@ SimpleLruDoesPhysicalPageExist(SlruCtl ctl, int pageno)
 	if (computenode_mode &&
 		page_server_connstring && page_server_connstring[0])
 	{
+		int forknum;
 		RelFileNode rnode;
 		rnode.dbNode = 0;
 		rnode.spcNode = 0;
 		rnode.relNode = 0;
 
-		int forknum;
 		if (strcmp(ctl->Dir, "pg_xact") == 0)
 			forknum = PG_CLOG_FORKNUM;
 		else if (strcmp(ctl->Dir, "pg_multixact/offsets") == 0)
@@ -723,12 +723,12 @@ SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno)
 	if (computenode_mode &&
 		page_server_connstring && page_server_connstring[0])
 	{
+		int forknum;
 		RelFileNode rnode;
 		rnode.dbNode = 0;
 		rnode.spcNode = 0;
 		rnode.relNode = 0;
 
-		int forknum;
 		if (strcmp(ctl->Dir, "pg_xact") == 0)
 			forknum = PG_CLOG_FORKNUM;
 		else if (strcmp(ctl->Dir, "pg_multixact/offsets") == 0)
@@ -759,7 +759,6 @@ SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno)
 
 	errno = 0;
 	pgstat_report_wait_start(WAIT_EVENT_SLRU_READ);
-
 	if (pg_pread(fd, shared->page_buffer[slotno], BLCKSZ, offset) != BLCKSZ)
 	{
 		pgstat_report_wait_end();
@@ -768,7 +767,6 @@ SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno)
 		CloseTransientFile(fd);
 		return false;
 	}
-
 	pgstat_report_wait_end();
 
 	if (CloseTransientFile(fd) != 0)

@@ -64,8 +64,6 @@ zenith_connect()
 	}
 
 	query = psprintf("pagestream %lu", GetSystemIdentifier());
-	zenith_log(LOG,
-			"[ZENITH_SMGR] start pagestream sysid %lu", GetSystemIdentifier());
 	ret = PQsendQuery(pageserver_conn, query);
 
 	if (ret != 1)

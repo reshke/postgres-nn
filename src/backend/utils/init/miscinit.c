@@ -700,7 +700,7 @@ InitializeSessionUserId(const char *rolename, Oid roleid)
 		if (!HeapTupleIsValid(roleTup))
 			ereport(FATAL,
 					(errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
-					 errmsg("1 role \"%s\" does not exist", rolename)));
+					 errmsg("role \"%s\" does not exist", rolename)));
 	}
 	else
 	{
@@ -1536,7 +1536,8 @@ ValidatePgVersion(const char *path)
 	char		file_version_string[64];
 	const char *my_version_string = PG_VERSION;
 
-	return;
+	return;	//TODO zenith pageserver doesn't handle such files yet
+
 	my_major = strtol(my_version_string, &endptr, 10);
 
 	snprintf(full_path, sizeof(full_path), "%s/PG_VERSION", path);

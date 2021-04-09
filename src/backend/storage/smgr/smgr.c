@@ -247,7 +247,7 @@ smgropen(RelFileNode rnode, BackendId backend)
 			 */
 			reln->smgr_which = rnode.relNode < FirstNormalObjectId ? SmgrMd : SmgrPageserver;
 
-			/* Request all needed pages from pageserver, including catalog */
+			/* Request all needed pages from pageserver, including catalog and SLRU */
 			if (computenode_mode)
 				reln->smgr_which = SmgrPageserver;
 		}

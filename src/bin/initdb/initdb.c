@@ -2845,7 +2845,7 @@ initialize_data_directory(void)
 	/* Now create all the text config files */
 	setup_config();
 
-	/* We're done here. */
+	/* For zenith compute node setup we're done here. */
 	if (compute_node)
 	{
 		/* Make the per-database PG_VERSION for template1 */
@@ -2862,8 +2862,6 @@ initialize_data_directory(void)
 	 * Make the per-database PG_VERSION for template1 only after init'ing it
 	 */
 	write_version_file("base/1");
-
-
 
 	/*
 	 * Create the stuff we don't need to use bootstrap mode for, using a
