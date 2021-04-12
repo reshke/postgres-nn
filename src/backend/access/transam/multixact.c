@@ -851,17 +851,6 @@ MultiXactIdCreateFromMembers(int nmembers, MultiXactMember *members)
 	return multi;
 }
 
-void
-multixact_redo_create_id_pageserver(XLogReaderState *record)
-{
-	xl_multixact_create *xlrec =
-	(xl_multixact_create *) XLogRecGetData(record);
-
-	/* Store the data back into the SLRU files */
-	RecordNewMultiXact(xlrec->mid, xlrec->moff, xlrec->nmembers,
-					   xlrec->members);
-}
-
 /*
  * RecordNewMultiXact
  *		Write info about a new multixact into the offsets and members files
@@ -3432,24 +3421,4 @@ int
 multixactmemberssyncfiletag(const FileTag *ftag, char *path)
 {
 	return SlruSyncFileTag(MultiXactMemberCtl, ftag, path);
-}
-
-void
-get_multixact_offset_page_copy(int pageno, char *buffer)
-{
-	int			slotno;
-	slotno = SimpleLruReadPage_ReadOnly(MultiXactOffsetCtl, pageno, InvalidTransactionId);
-	memcpy(buffer, MultiXactOffsetCtl->shared->page_buffer[slotno], BLCKSZ);
-	//Lock was taken by SimpleLruReadPage_ReadOnly
-	LWLockRelease(MultiXactOffsetSLRULock);
-}
-
-void
-get_multixact_member_page_copy(int pageno, char *buffer)
-{
-	int			slotno;
-	slotno = SimpleLruReadPage_ReadOnly(MultiXactMemberCtl, pageno, InvalidTransactionId);
-	memcpy(buffer, MultiXactMemberCtl->shared->page_buffer[slotno], BLCKSZ);
-	//Lock was taken by SimpleLruReadPage_ReadOnly
-	LWLockRelease(MultiXactMemberSLRULock);
 }

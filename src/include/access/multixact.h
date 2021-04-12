@@ -161,30 +161,4 @@ extern const char *multixact_identify(uint8 info);
 extern char *mxid_to_string(MultiXactId multi, int nmembers,
 							MultiXactMember *members);
 
-extern void get_multixact_offset_page_copy(int pageno, char *buffer);
-extern void get_multixact_member_page_copy(int pageno, char *buffer);
-
-extern void multixact_redo_create_id_pageserver(XLogReaderState *record);
-/*
- * Defines for MultiXactOffset page sizes.  A page is the same BLCKSZ as is
- * used everywhere else in Postgres.
- *
- * Note: because MultiXactOffsets are 32 bits and wrap around at 0xFFFFFFFF,
- * MultiXact page numbering also wraps around at
- * 0xFFFFFFFF/MULTIXACT_OFFSETS_PER_PAGE, and segment numbering at
- * 0xFFFFFFFF/MULTIXACT_OFFSETS_PER_PAGE/SLRU_PAGES_PER_SEGMENT.  We need
- * take no explicit notice of that fact in this module, except when comparing
- * segment and page numbers in TruncateMultiXact (see
- * MultiXactOffsetPagePrecedes).
- */
-
-/* We need four bytes per offset */
-#define MULTIXACT_OFFSETS_PER_PAGE (BLCKSZ / sizeof(MultiXactOffset))
-
-#define MultiXactIdToOffsetPage(xid) \
-	((xid) / (MultiXactOffset) MULTIXACT_OFFSETS_PER_PAGE)
-#define MultiXactIdToOffsetEntry(xid) \
-	((xid) % (MultiXactOffset) MULTIXACT_OFFSETS_PER_PAGE)
-#define MultiXactIdToOffsetSegment(xid) (MultiXactIdToOffsetPage(xid) / SLRU_PAGES_PER_SEGMENT)
-
 #endif							/* MULTIXACT_H */
