@@ -85,6 +85,7 @@ static void FindEndOfXLOG(void);
 static void KillExistingXLOG(void);
 static void KillExistingArchiveStatus(void);
 static void WriteEmptyXLOG(void);
+static void WriteBootstrapXLOG(ControlFileData *ControlFile);
 static void usage(void);
 
 
@@ -1181,6 +1182,148 @@ WriteEmptyXLOG(void)
 	/* Fill the rest of the file with zeroes */
 	memset(buffer.data, 0, XLOG_BLCKSZ);
 	for (nbytes = XLOG_BLCKSZ; nbytes < WalSegSz; nbytes += XLOG_BLCKSZ)
+	{
+		errno = 0;
+		if (write(fd, buffer.data, XLOG_BLCKSZ) != XLOG_BLCKSZ)
+		{
+			if (errno == 0)
+				errno = ENOSPC;
+			pg_log_error("could not write file \"%s\": %m", path);
+			exit(1);
+		}
+	}
+
+	if (fsync(fd) != 0)
+	{
+		pg_log_error("fsync error: %m");
+		exit(1);
+	}
+
+	close(fd);
+}
+
+/* Generate stub WAL file with only one CHECKPOINT record
+ * to start zenith computenode.
+ *
+ * TODO: translate it to rust
+ */
+static void
+WriteBootstrapXLOG(ControlFileData *ControlFile)
+{
+	PGAlignedXLogBlock buffer;
+	XLogPageHeader page;
+	XLogLongPageHeader longpage;
+	XLogRecord *record;
+	pg_crc32c	crc;
+	char		path[MAXPGPATH];
+	int			fd;
+	int			nbytes;
+	char	   *recptr;
+	XLogRecPtr lsn = ControlFile->checkPointCopy.redo;
+	XLogSegNo newXlogSegNo =  lsn / ControlFile->xlog_seg_size;
+	int targetRecOff = lsn % ControlFile->xlog_blcksz;
+	int	targetPagePtr = lsn - (lsn % ControlFile->xlog_blcksz);
+	int targetPageOff = XLogSegmentOffset(targetPagePtr, ControlFile->xlog_seg_size);
+
+	XLogFilePath(path, ControlFile->checkPointCopy.ThisTimeLineID,
+				 newXlogSegNo, ControlFile->xlog_seg_size);
+
+	pg_log_debug("XLogFilePath \"%s\"", path);
+	pg_log_debug("lsn \"%X/%X\"",  (uint32) (lsn >> 32), (uint32) lsn);
+
+	pg_log_debug("newXlogSegNo \"%lu\"", newXlogSegNo);
+	pg_log_debug("targetPageOff \"%d\"", targetPageOff);
+	pg_log_debug("targetRecOff \"%d\"", targetRecOff);
+
+	unlink(path);
+
+	fd = open(path, O_RDWR | O_CREAT | O_EXCL | PG_BINARY,
+			  pg_file_create_mode);
+	if (fd < 0)
+	{
+		pg_log_error("could not open file \"%s\": %m", path);
+		exit(1);
+	}
+
+	memset(buffer.data, 0, XLOG_BLCKSZ);
+
+	/* Set up the WAL file header */
+	page = (XLogPageHeader) buffer.data;
+	page->xlp_magic = XLOG_PAGE_MAGIC;
+	page->xlp_info = XLP_LONG_HEADER;
+	page->xlp_tli = ControlFile->checkPointCopy.ThisTimeLineID;
+	XLogSegNoOffsetToRecPtr(newXlogSegNo, 0, DEFAULT_XLOG_SEG_SIZE, page->xlp_pageaddr);
+	longpage = (XLogLongPageHeader) page;
+	longpage->xlp_sysid = ControlFile->system_identifier;
+	longpage->xlp_seg_size = WalSegSz;
+	longpage->xlp_xlog_blcksz = XLOG_BLCKSZ;
+
+	errno = 0;
+	if (write(fd, buffer.data, XLOG_BLCKSZ) != XLOG_BLCKSZ)
+	{
+		/* if write didn't set errno, assume problem is no disk space */
+		if (errno == 0)
+			errno = ENOSPC;
+		pg_log_error("could not write file \"%s\": %m", path);
+		exit(1);
+	}
+
+	//Write some empty pages
+	memset(buffer.data, 0, XLOG_BLCKSZ);
+	for (nbytes = XLOG_BLCKSZ; nbytes < targetPageOff; nbytes += XLOG_BLCKSZ)
+	{
+		errno = 0;
+		if (write(fd, buffer.data, XLOG_BLCKSZ) != XLOG_BLCKSZ)
+		{
+			if (errno == 0)
+				errno = ENOSPC;
+			pg_log_error("could not write file \"%s\": %m", path);
+			exit(1);
+		}
+	}
+
+	// Fill the entry
+	/* Set up the XLOG page header */
+	page = (XLogPageHeader) buffer.data;
+	page->xlp_magic = XLOG_PAGE_MAGIC;
+	page->xlp_tli = ControlFile->checkPointCopy.ThisTimeLineID;
+	page->xlp_pageaddr = ControlFile->checkPointCopy.redo - targetRecOff;
+	pg_log_debug("page with record xlp_pageaddr /%X", (uint32) page->xlp_pageaddr);
+
+	/* Insert the checkpoint record */
+	recptr = (char *) page + targetRecOff;
+	record = (XLogRecord *) recptr;
+	record->xl_prev = 0;
+	record->xl_xid = InvalidTransactionId;
+	record->xl_tot_len = SizeOfXLogRecord + SizeOfXLogRecordDataHeaderShort + sizeof(CheckPoint);
+	record->xl_info = XLOG_CHECKPOINT_SHUTDOWN;
+	record->xl_rmid = RM_XLOG_ID;
+
+	recptr += SizeOfXLogRecord;
+	*(recptr++) = (char) XLR_BLOCK_ID_DATA_SHORT;
+	*(recptr++) = sizeof(CheckPoint);
+	memcpy(recptr, &ControlFile->checkPointCopy,
+		   sizeof(CheckPoint));
+
+	INIT_CRC32C(crc);
+	COMP_CRC32C(crc, ((char *) record) + SizeOfXLogRecord, record->xl_tot_len - SizeOfXLogRecord);
+	COMP_CRC32C(crc, (char *) record, offsetof(XLogRecord, xl_crc));
+	FIN_CRC32C(crc);
+	record->xl_crc = crc;
+
+	errno = 0;
+	if (write(fd, buffer.data, XLOG_BLCKSZ) != XLOG_BLCKSZ)
+	{
+		/* if write didn't set errno, assume problem is no disk space */
+		if (errno == 0)
+			errno = ENOSPC;
+		pg_log_error("could not write file \"%s\": %m", path);
+		exit(1);
+	}
+
+	/* Fill the rest of the file with zeroes */
+	memset(buffer.data, 0, XLOG_BLCKSZ);
+	for (nbytes = targetPageOff + XLOG_BLCKSZ; nbytes < DEFAULT_XLOG_SEG_SIZE; nbytes += XLOG_BLCKSZ)
 	{
 		errno = 0;
 		if (write(fd, buffer.data, XLOG_BLCKSZ) != XLOG_BLCKSZ)
