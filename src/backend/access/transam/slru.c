@@ -639,20 +639,6 @@ SimpleLruDoesPhysicalPageExist(SlruCtl ctl, int pageno)
 
 	SlruFileName(ctl, path, segno);
 
-	if (zenith_clog && strcmp(ctl->Dir, "pg_xact") == 0 &&
-		page_server_connstring && page_server_connstring[0])
-	{
-		int forknum;
-		RelFileNode rnode;
-		rnode.dbNode = 0;
-		rnode.spcNode = 0;
-		rnode.relNode = 0;
-
-		forknum = PG_CLOG_FORKNUM;
-
-		return zenith_nonrel_page_exists(rnode, pageno, forknum);
-	}
-
 	fd = OpenTransientFile(path, O_RDONLY | PG_BINARY);
 	if (fd < 0)
 	{
@@ -681,6 +667,16 @@ SimpleLruDoesPhysicalPageExist(SlruCtl ctl, int pageno)
 		slru_errno = errno;
 		return false;
 	}
+	if (zenith_clog && strcmp(ctl->Dir, "pg_xact") == 0 &&
+		page_server_connstring && page_server_connstring[0])
+	{
+		RelFileNode rnode = {0,0,0};
+		int csc = CritSectionCount;
+		CritSectionCount = 0;
+		Assert(result == zenith_nonrel_page_exists(rnode, pageno, PG_CLOG_FORKNUM));
+		CritSectionCount = csc;
+	}
+
 
 	return result;
 }
@@ -714,22 +710,6 @@ SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno)
 	 * SlruPhysicalWritePage).  Hence, if we are InRecovery, allow the case
 	 * where the file doesn't exist, and return zeroes instead.
 	 */
-
-	if (zenith_clog && strcmp(ctl->Dir, "pg_xact") == 0 &&
-		page_server_connstring && page_server_connstring[0])
-	{
-		int forknum;
-		RelFileNode rnode;
-		rnode.dbNode = 0;
-		rnode.spcNode = 0;
-		rnode.relNode = 0;
-
-		if (strcmp(ctl->Dir, "pg_xact") == 0)
-			forknum = PG_CLOG_FORKNUM;
-
-		zenith_read_nonrel(rnode, pageno, shared->page_buffer[slotno], forknum);
-		return true;
-	}
 
 	fd = OpenTransientFile(path, O_RDONLY | PG_BINARY);
 	if (fd < 0)
@@ -766,6 +746,20 @@ SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno)
 		slru_errno = errno;
 		return false;
 	}
+	if (zenith_clog && strcmp(ctl->Dir, "pg_xact") == 0 &&
+		page_server_connstring && page_server_connstring[0] &&
+		MyBackendType != B_STARTUP)
+	{
+		RelFileNode rnode;
+		char buf[BLCKSZ] = {0,0,0};
+		int csc = CritSectionCount;
+		CritSectionCount = 0;
+		zenith_read_nonrel(rnode, pageno, buf, PG_CLOG_FORKNUM);
+		Assert(memcmp(buf, shared->page_buffer[slotno], BLCKSZ) == 0);
+		CritSectionCount = csc;
+		return true;
+	}
+
 
 	return true;
 }
@@ -839,13 +833,14 @@ SlruPhysicalWritePage(SlruCtl ctl, int pageno, int slotno, SlruWriteAll fdata)
 		}
 	}
 
+#if 0
 	if (zenith_clog && strcmp(ctl->Dir, "pg_xact") == 0 &&
 		page_server_connstring && page_server_connstring[0])
 	{
 		elog(DEBUG2, "[ZENITH] SLRU SlruPhysicalWritePage noop");
 		return true;
 	}
-
+#endif
 	/*
 	 * During a WriteAll, we may already have the desired file open.
 	 */
@@ -1637,13 +1632,14 @@ SlruSyncFileTag(SlruCtl ctl, const FileTag *ftag, char *path)
 
 	SlruFileName(ctl, path, ftag->segno);
 
-
+#if 0
 	if (zenith_clog && strcmp(ctl->Dir, "pg_xact") == 0 &&
 		page_server_connstring && page_server_connstring[0])
 	{
 		elog(DEBUG2, "[ZENITH] SLRU SlruSyncFileTag noop");
 		return true;
 	}
+#endif
 
 	fd = OpenTransientFile(path, O_RDWR | PG_BINARY);
 	if (fd < 0)

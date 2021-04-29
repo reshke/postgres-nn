@@ -675,7 +675,7 @@ TransactionIdGetStatus(TransactionId xid, XLogRecPtr *lsn)
 Size
 CLOGShmemBuffers(void)
 {
-	return Min(128, Max(4, NBuffers / 512));
+	return Min(2, Max(4, NBuffers / 512));
 }
 
 /*

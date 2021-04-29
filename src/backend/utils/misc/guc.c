@@ -2076,7 +2076,7 @@ static struct config_bool ConfigureNamesBool[] =
 			gettext_noop("Use Zenith page server also for CLOG."),
 		},
 		&zenith_clog,
-		false,
+		true,
 		NULL, NULL, NULL
 	},
 
