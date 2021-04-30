@@ -750,8 +750,8 @@ SlruPhysicalReadPage(SlruCtl ctl, int pageno, int slotno)
 		page_server_connstring && page_server_connstring[0] &&
 		MyBackendType != B_STARTUP)
 	{
-		RelFileNode rnode;
-		char buf[BLCKSZ] = {0,0,0};
+		RelFileNode rnode = {0,0,0};
+		char buf[BLCKSZ];
 		int csc = CritSectionCount;
 		CritSectionCount = 0;
 		zenith_read_nonrel(rnode, pageno, buf, PG_CLOG_FORKNUM);
