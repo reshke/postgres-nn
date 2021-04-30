@@ -337,20 +337,20 @@ zenith_get_request_lsn(bool nonrel)
 	}
 	else
 	{
+		XLogRecPtr flushLsn = InvalidXLogRecPtr;
 		lsn = GetLastWrittenPageLSN();
 
 		elog(DEBUG1, "zenith_get_request_lsn GetLastWrittenPageLSN lsn %X/%X ",
 			(uint32) ((lsn) >> 32), (uint32) (lsn));
 
-		if (lsn > GetFlushRecPtr())
+		if (lsn > flushLsn)
 			XLogFlush(lsn);
 		if (lsn == InvalidXLogRecPtr)
 		{
 			/* we haven't evicted anything yet since the server was started */
-			lsn = GetFlushRecPtr();
+			lsn = flushLsn;
 			elog(DEBUG1, "zenith_get_request_lsn GetFlushRecPtr lsn %X/%X request 0",
 			(uint32) ((lsn) >> 32), (uint32) (lsn));
-			lsn = InvalidXLogRecPtr;
 		}
 	}
 	return lsn;
