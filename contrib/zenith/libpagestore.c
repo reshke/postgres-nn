@@ -255,4 +255,5 @@ _PG_init(void)
 		smgr_hook = smgr_zenith;
 		smgr_init_hook = smgr_init_zenith;
 	}
+	zenith_prefetch_init();
 }
