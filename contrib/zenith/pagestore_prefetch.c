@@ -30,7 +30,8 @@
 typedef enum {
 	QUEUED,
 	IN_PROGRESS,
-	COMPLETED
+	COMPLETED,
+	CANCELED,
 } PrefetchState;
 
 typedef struct PrefetchEntry {
@@ -57,6 +58,7 @@ static bool prefetch_cancel;
 
 size_t n_prefetch_requests;
 size_t n_prefetch_hits;
+size_t max_merged_prefetch_requests;
 
 static void
 zenith_prefetch_shmem_startup(void)
@@ -104,7 +106,7 @@ zenith_prefetch_init(void)
                             "Size of zenith prefetch buffer",
 							NULL,
 							&prefetch_buffer_size,
-                            0,//1024, /* 8Mb */
+							1024, /* 8Mb */
 							0,
 							INT_MAX,
 							PGC_POSTMASTER,
@@ -150,6 +152,8 @@ bool zenith_find_prefetched_buffer(SMgrRelation reln, ForkNumber forknum, BlockN
 				 */
 				prefetch_control->entries[entry->index] = NULL;
 				hash_search(prefetch_hash, &tag, HASH_REMOVE, NULL);
+				if (entry->wait_latch)
+					SetLatch(entry->wait_latch);
 				LWLockRelease(prefetch_lock);
 				return false;
 			}
@@ -164,26 +168,19 @@ bool zenith_find_prefetched_buffer(SMgrRelation reln, ForkNumber forknum, BlockN
 			else
 			{
 				/* Prefetch is still in progress */
-				Latch* other_latch;
 
 				prefetch_log("%lu: wait completion of prefetch for block %d of relation %d",
 							 GetCurrentTimestamp(), blocknum, tag.rnode.relNode);
-				/*
-				 * Instead of holding list of waiting backends in shared memory,
-				 * we keep in shared memory only one latch and let backends
-				 * remember and signal saved latches.
-				 */
-				other_latch = entry->wait_latch;
-				entry->wait_latch  = MyLatch;
+
+				/* Two concurrent reads of the same buffers are not possible */
+				Assert(entry->wait_latch == NULL || entry->wait_latch == MyLatch);
+				entry->wait_latch = MyLatch;
+
 				LWLockRelease(prefetch_lock);
 
 				/* wait latch to be signaled */
 				(void)WaitLatch(MyLatch, WL_EXIT_ON_PM_DEATH|WL_LATCH_SET, 0, PG_WAIT_EXTENSION);
 				ResetLatch(MyLatch);
-
-				/* Signal original latch if any */
-				if (other_latch)
-					SetLatch(other_latch);
 			}
 			continue;
 		}
@@ -256,6 +253,8 @@ zenith_prefetch_buffer(SMgrRelation reln, ForkNumber forknum, BlockNumber blockn
 		if (victim != NULL)
 		{
 			/* remove old entry */
+			if (victim->wait_latch)
+				SetLatch(victim->wait_latch);
 			hash_search(prefetch_hash, &victim->tag, HASH_REMOVE, NULL);
 		}
 		entry->state = QUEUED;
@@ -292,6 +291,7 @@ void
 zenith_prefetch_main(Datum arg)
 {
 	size_t curr = 0;
+	PrefetchEntry* prefetch_entries = (PrefetchEntry*)palloc(prefetch_buffer_size*sizeof(PrefetchEntry));
 
 	pqsignal(SIGINT,  zenith_prefetch_cancel);
 	pqsignal(SIGQUIT, zenith_prefetch_cancel);
@@ -304,62 +304,89 @@ zenith_prefetch_main(Datum arg)
 
 	while (!prefetch_cancel)
 	{
+		size_t from, till;
+		size_t n_prefetched = 0;
 		(void)WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, -1L, PG_WAIT_EXTENSION);
 		ResetLatch(MyLatch);
 
 		LWLockAcquire(prefetch_lock, LW_EXCLUSIVE);
-		for (; !prefetch_cancel && curr != prefetch_control->curr; curr = (curr + 1) % prefetch_buffer_size)
+		till = prefetch_control->curr;
+		for (from = curr; !prefetch_cancel && from != till;  from = (from + 1) % prefetch_buffer_size)
 		{
-			BufferTag tag;
-			XLogRecPtr lsn;
-			ZenithResponse *resp;
-			PrefetchEntry* entry = prefetch_control->entries[curr];
+			PrefetchEntry* entry = prefetch_control->entries[from];
 
 			if (entry == NULL) /* prefetch request was withdrawn */
+			{
+				prefetch_entries[from].state = CANCELED;
 				continue;
-
+			}
 			Assert(entry->state == QUEUED);
-			tag = entry->tag;
-			lsn = entry->lsn;
 			entry->state = IN_PROGRESS;
+			prefetch_entries[from] = *entry;
+
+			prefetch_log("%lu: send prefetch request for block %d of relation %d",
+						 GetCurrentTimestamp(), entry->tag.blockNum, entry->tag.rnode.relNode);
+
+			page_server->send((ZenithRequest) {
+				.tag = T_ZenithReadRequest,
+				.page_key = {
+					 .rnode = entry->tag.rnode,
+					 .forknum = entry->tag.forkNum,
+					 .blkno = entry->tag.blockNum
+				},
+				.lsn = entry->lsn
+		    });
+			n_prefetched += 1;
+		}
+
+		if (n_prefetched)
+		{
+			page_server->flush();
+			if (n_prefetched > max_merged_prefetch_requests)
+				max_merged_prefetch_requests = n_prefetched;
+		}
+
+		for (from = curr; !prefetch_cancel && from != till;  from = (from + 1) % prefetch_buffer_size)
+		{
+			ZenithResponse *resp;
+			PrefetchEntry* entry;
+
+			if (prefetch_entries[from].state == CANCELED)
+				continue;
 
 			/* Release lock to load buffer */
 			LWLockRelease(prefetch_lock);
-			resp = page_server->request((ZenithRequest) {
-				.tag = T_ZenithReadRequest,
-				.page_key = {
-					 .rnode = tag.rnode,
-					 .forknum = tag.forkNum,
-					 .blkno = tag.blockNum
-				},
-				.lsn = lsn
-		    });
-
-			prefetch_log("%lu: send prefetch request for block %d of relation %d",
-						 GetCurrentTimestamp(), tag.blockNum, tag.rnode.relNode);
+			resp = page_server->receive();
 			LWLockAcquire(prefetch_lock, LW_EXCLUSIVE);
-			if (!resp->ok)
+
+			entry = prefetch_control->entries[from];
+			if (entry != NULL
+				&& entry->lsn == prefetch_entries[from].lsn
+				&& memcmp(&entry->tag, &prefetch_entries[from].tag, sizeof(entry->tag)) == 0)
 			{
-				ereport(LOG,
-						(errcode(ERRCODE_IO_ERROR),
-						 errmsg("could not prefetch block %u in rel %u/%u/%u.%u from page server at lsn %X/%08X",
-								tag.blockNum,
-								tag.rnode.spcNode,
-								tag.rnode.dbNode,
-								tag.rnode.relNode,
-								tag.forkNum,
-								LSN_FORMAT_ARGS(lsn))));
-			}
-			else if (!PageIsNew(resp->page) /* page server returns zero page if requested cblock is not found */
-					 && entry == prefetch_control->entries[curr] /* entry was not replaced in cyclic buffer */
-					 && memcmp(&entry->tag, &tag, sizeof(tag)) == 0)
-			{
-				Assert(entry->lsn == lsn && entry->state == IN_PROGRESS);
-				prefetch_log("%lu: receive prefetched data for block %d of relation %d",
-							 GetCurrentTimestamp(), tag.blockNum, tag.rnode.relNode);
-				entry->state = COMPLETED;
-				((PageHeader)resp->page)->pd_flags &= ~PD_WAL_LOGGED; /* Clear PD_WAL_LOGGED bit stored in WAL record */
-				memcpy(prefetch_buffer + entry->index*BLCKSZ, resp->page, BLCKSZ);
+				/* entry was not replaced in cyclic buffer */
+				Assert(entry->state == IN_PROGRESS);
+
+				if (!resp->ok)
+				{
+					ereport(LOG,
+							(errcode(ERRCODE_IO_ERROR),
+							 errmsg("could not prefetch block %u in rel %u/%u/%u.%u from page server at lsn %X/%08X",
+									entry->tag.blockNum,
+									entry->tag.rnode.spcNode,
+									entry->tag.rnode.dbNode,
+									entry->tag.rnode.relNode,
+									entry->tag.forkNum,
+									LSN_FORMAT_ARGS(entry->lsn))));
+				}
+				else if (!PageIsNew(resp->page)) /* page server returns zero page if requested cblock is not found */
+				{
+					prefetch_log("%lu: receive prefetched data for block %d of relation %d",
+								 GetCurrentTimestamp(), entry->tag.blockNum, entry->tag.rnode.relNode);
+					entry->state = COMPLETED;
+					((PageHeader)resp->page)->pd_flags &= ~PD_WAL_LOGGED; /* Clear PD_WAL_LOGGED bit stored in WAL record */
+					memcpy(prefetch_buffer + entry->index*BLCKSZ, resp->page, BLCKSZ);
+				}
 				if (entry->wait_latch)
 				{
 					SetLatch(entry->wait_latch);
@@ -368,6 +395,7 @@ zenith_prefetch_main(Datum arg)
 			}
 			pfree(resp);
 		}
+		curr = till;
 		LWLockRelease(prefetch_lock);
 	}
 }

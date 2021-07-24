@@ -85,6 +85,9 @@ char	   *zm_to_string(ZenithMessage * msg);
 typedef struct
 {
 	ZenithResponse *(*request) (ZenithRequest request);
+	void (*send) (ZenithRequest request);
+	ZenithResponse *(*receive) (void);
+	void (*flush) (void);
 }			page_server_api;
 
 extern page_server_api * page_server;
