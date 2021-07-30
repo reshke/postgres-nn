@@ -18,6 +18,7 @@
 #include "access/xloginsert.h"
 #include "access/xlog_internal.h"
 #include "pagestore_client.h"
+#include "postmaster/interrupt.h"
 #include "storage/relfilenode.h"
 #include "storage/smgr.h"
 #include "access/xlogdefs.h"
@@ -242,6 +243,9 @@ static void
 zenith_wallog_page(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum, char *buffer)
 {
 	XLogRecPtr lsn = PageGetLSN(buffer);
+
+	if (ShutdownRequestPending)
+		return;
 
 	/*
 	 * If the page was not WAL-logged before eviction then we can lose its modification.
